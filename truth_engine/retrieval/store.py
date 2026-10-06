@@ -17,6 +17,7 @@ import numpy as np
 
 from ..config import DATA_DIR
 from ..schemas import Passage, Source
+from ..science.study_design import classify
 from ..textutils import sentences
 from .bm25 import BM25
 from .embeddings import get_embedder
@@ -86,6 +87,10 @@ class DocumentStore:
         src = Source(id=id, title=title, url=url, source_type=stype, publisher=publisher, published=published,
                      authority=auth, is_primary=is_primary, cites=_as_list(cites),
                      derived_from=_as_list(derived_from), metadata=extra)
+        if stype in ("paper", "review", "news", "blog", "marketing", "forum"):
+            prof = classify(title, body, source_type=stype, metadata=extra)
+            src.metadata["study"] = prof.model_dump()
+            src.metadata["study_label"] = prof.label
         src.quality = score_source(src)
         with self._lock:
             self.sources[id] = src

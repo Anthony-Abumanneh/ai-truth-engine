@@ -3,7 +3,8 @@
 For every claim the engine:
   1. derives evidence requirements (what would support it, what would refute it)
   2. issues *supporting* queries and, separately, *falsification* queries
-  3. pulls from the selected sources (corpus, web, knowledge graph)
+  3. pulls from the selected sources (corpus, web, knowledge graph, and the
+     scholarly literature via PubMed / OpenAlex)
   4. ranks by relevance, drops noise (Challenge 3), and tags each passage with
      how it was found so the verifier and UI can tell the two searches apart
 
@@ -46,6 +47,24 @@ class EvidencePlan:
     requirements: list[str] = field(default_factory=list)
 
 
+def claim_subject(claim: Claim) -> str | None:
+    """What the claim is about: its first named entity ("Vitamin D"), else its
+    first topical keyword ("creatine")."""
+    if claim.entities:
+        return claim.entities[0]
+    from ..science.search import query_terms
+    terms = query_terms(claim.text, max_terms=1)
+    return terms[0] if terms else None
+
+
+def mentions(subject: str, text: str) -> bool:
+    """Phrase match on lowercase words, falling back to stems (creatine/creatine's)."""
+    if re.search(r"(?<![\w-])" + re.escape(subject.lower()) + r"(?![\w-])", " ".join(words(text))):
+        return True
+    need = set(content_tokens(subject))
+    return bool(need) and need <= set(content_tokens(text))
+
+
 def contradiction_potential(claim: str, passage: str) -> float:
     """How likely a passage is to *contradict* a claim, before full verification.
     High when the passage is about the same thing (entity/topic overlap) but
@@ -74,10 +93,19 @@ def contradiction_potential(claim: str, passage: str) -> float:
 
 class EvidenceEngine:
     def __init__(self, store: DocumentStore | None = None, graph: KnowledgeGraph | None = None,
-                 web: WebSearch | None = None):
+                 web: WebSearch | None = None, science=None):
         self.store = store or get_store()
         self.graph = graph or get_graph()
         self.web = web or get_web()
+        self._science = science
+        self.last_external_sources: dict[str, Source] = {}
+
+    @property
+    def science(self):
+        if self._science is None:
+            from ..science.search import get_science
+            self._science = get_science()
+        return self._science
 
     # ------------------------------------------------------------ planning
     def plan(self, claim: Claim, sources: list[str], contradiction: bool = True) -> EvidencePlan:
@@ -120,8 +148,14 @@ class EvidenceEngine:
                min_relevance: float = 0.2) -> list[Retrieved]:
         out: dict[str, Retrieved] = {}
         external: dict[str, Source] = {}
+        subject = claim_subject(claim)
 
         def consider(p: Passage, src: Source, found_by: str, q: str):
+            # Subject gate for outside sources (papers, web): a passage must be
+            # about the claim's subject, in its own text or its title. Drops
+            # e.g. an omega-3 trial's sentence retrieved for a vitamin-D claim.
+            if subject and src.id not in self.store.sources and not mentions(subject, f"{src.title}. {p.text}"):
+                return
             title_tokens = content_tokens(src.title)
             rel = coverage(content_tokens(claim.text), content_tokens(p.text) + title_tokens)
             ent_overlap = sum(1 for e in (claim.entities or []) if e.lower() in (p.text + " " + src.title).lower())
@@ -138,6 +172,7 @@ class EvidenceEngine:
 
         use_corpus = "corpus" in plan.sources or "internal" in plan.sources
         use_web = "web" in plan.sources and self.web.available
+        lit = tuple(x for x in ("pubmed", "openalex") if x in plan.sources)
         for q in plan.support_queries:
             if use_corpus:
                 for p in self.store.search(q, k=k_support):
@@ -147,6 +182,12 @@ class EvidenceEngine:
                     external[src.id] = src
                     for p in ps:
                         consider(p, src, "supporting_search", q)
+        if lit:
+            # one literature query per claim: the APIs do their own term matching
+            for src, ps in self.science.search(claim.text, k=k_support, use=lit):
+                external[src.id] = src
+                for p in ps:
+                    consider(p, src, "supporting_search", claim.text)
         for q in plan.falsify_queries:
             hits = []
             if use_corpus:
@@ -159,6 +200,16 @@ class EvidenceEngine:
             hits.sort(key=lambda h: -contradiction_potential(claim.text, h[0].text))
             for p, src in hits[:k_falsify]:
                 consider(p, src, "contradiction_search", q)
+        if lit and plan.falsify_queries:
+            # Falsification in the literature: the strongest designs (trials, reviews)
+            # on the same topic, whatever they concluded, reranked by conflict signals.
+            hits = [(p, src) for src, ps in self.science.search(claim.text, k=k_support, use=lit, high_evidence=True)
+                    for p in ps]
+            for src in {s.id: s for _, s in hits}.values():
+                external[src.id] = src
+            hits.sort(key=lambda h: -contradiction_potential(claim.text, h[0].text))
+            for p, src in hits[:k_falsify]:
+                consider(p, src, "contradiction_search", "high-evidence literature search")
         if "graph" in plan.sources:
             for gp in self.graph.multi_hop(claim.text, k=2):
                 if gp.score < 0.3:

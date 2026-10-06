@@ -123,7 +123,7 @@ Add keys and it upgrades automatically — no code changes:
 | `OPENAI_COMPAT_BASE_URL`, `OPENAI_COMPAT_MODELS` | Any OpenAI-compatible server: Qwen via DashScope, Together, vLLM, Ollama |
 | `TAVILY_API_KEY` / `BRAVE_API_KEY` / `SERPER_API_KEY` | Live web search |
 | `NCBI_API_KEY` *(optional)* | Higher PubMed rate limits (PubMed works without a key) |
-| `OPENALEX_EMAIL` *(optional)* | OpenAlex "polite pool" (OpenAlex works without it) |
+| `OPENALEX_EMAIL` *(optional)* | OpenAlex and Crossref "polite pools" (both work without it) |
 | `TE_EMBEDDINGS=openai` or `st` | Neural embeddings instead of the offline hashing embedder |
 | `TE_OFFLINE=1` | Force offline mode even when keys are present |
 
@@ -166,9 +166,16 @@ truth_engine/
   retrieval/          document store, BM25 + vector hybrid search, web search,
                       knowledge graph, citation graph, source quality,
                       support + falsification evidence engine
-  science/            PubMed, OpenAlex, study-design grading, red flags      (in progress)
-  pipeline/           analyzer, router, claims, verifier, critic, judge,
-                      calibration, synthesizer, orchestrator                   (in progress)
+  science/            PubMed + OpenAlex clients, on-disk cache, study-design
+                      grading (design, sample size, preregistration, funding,
+                      species, retraction), journal signals, Retraction Watch
+                      notices via Crossref; red flags arrive in step 4
+  pipeline/           claims (atomic claims + spans), verifier (stance, lineages,
+                      six statuses), audit (step-4 pipeline + CLI); analyzer,
+                      router, critic, judge, calibration, orchestrator         (in progress)
+  science/red_flags.py  animal/cell→human, correlation→causation, relative
+                      risk only, single/failed replication, small sample,
+                      industry funding, retraction, echo chamber, "proven"
   feedback/           trace store, learned router, watched claims             (planned)
   bench/              datasets, baselines, metrics, ablations, report card    (planned)
   api/                FastAPI server with streaming investigations            (planned)
@@ -185,14 +192,19 @@ tests/
 |---|---|---|
 | 1 | Core schemas, config, model provider layer | ✅ Done |
 | 2 | Retrieval and evidence engine (hybrid search, falsification search, citation graph, knowledge graph, source quality) | ✅ Done |
-| 3 | Scientific evidence sources and study grading (PubMed, OpenAlex, retractions, study design) | ⏳ Next |
-| 4 | Audit mode: claim extraction, verifier, science red-flag checks | Planned |
-| 5 | Analyzer, router, compute budgets, independent solvers | Planned |
+| 3 | Scientific evidence sources and study grading (PubMed, OpenAlex, retractions, study design) | ✅ Done |
+| 3.5 | Journal signals, Retraction Watch (Crossref), subject relevance gate | ✅ Done |
+| 4 | Audit mode: claim extraction, verifier, science red-flag checks | ✅ Done |
+| 4.5 | Local neural NLI verifier fused with the rules (offline; PyTorch or ONNX) | ✅ Done |
+| 5 | Analyzer, router, compute budgets, independent solvers | ⏳ Next |
 | 6 | Critic, judge, calibrated confidence, abstention | Planned |
 | 7 | Orchestrator, evidence tree, feedback loop, watched claims | Planned |
 | 8 | Benchmark, baselines, ablations, calibration report card | Planned |
+| 8.5 | Fine-tuned models (verifier, evidence reranker, study-design classifier) | Planned |
 | 9 | API, CLI and audit-first web interface | Planned |
 | 10 | Tests, end-to-end verification, docs | Planned |
+| 11 | Deployment and MLOps (Docker, CI quality gate, monitoring) | Planned |
+| 12 | Stretch: RL (GRPO) fine-tuning of a small LLM with the verifier as reward | Planned |
 
 ## About the demo corpus
 
@@ -204,7 +216,12 @@ development and tests:
   sites), so error detection can be tested.
 - **Research** — a **fictional** supplement, *veridamine*, with a complete
   echo chamber: one small pilot study, three sources that repeat it, a large
-  trial that failed to replicate it, and a systematic review.
+  trial that failed to replicate it, and a systematic review. Plus more
+  **fictional** traps: a retracted trial still quoted by news and marketing
+  (*lumorex*), a mouse-only result restated for humans (*calvetrin*), an
+  observational link reported as prevention (*brivo tea*), a relative risk
+  without its absolute risk (*zantorel*), and a cell-culture result sold as
+  "grows new brain cells" (*nervaplex*).
 - **Products** and **Company** — **fictional** organizations used to test
   claim decomposition and causal reasoning from the original specification.
 
@@ -214,8 +231,33 @@ real products, companies or research.
 ## Requirements
 
 Python 3.11+, plus `fastapi`, `uvicorn`, `pydantic`, `httpx`, `numpy`, `sympy`.
-Install and run instructions will be added when the server and interface land
-(step 9).
+
+```
+python -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python -m truth_engine.pipeline.nli download     # optional local NLI model (369 MB; needs torch + transformers)
+# lighter alternative without PyTorch: ... nli download onnx   (244 MB, less accurate)
+.venv/bin/python -m pytest -q
+.venv/bin/python -m truth_engine.pipeline.audit "Veridamine improves sleep quality by 18% and is clinically proven."
+.venv/bin/python -m truth_engine.pipeline.audit --live "Creatine improves memory in older adults."
+```
+
+`--live` adds PubMed and OpenAlex to the demo corpus.
+
+**How good is the verifier?** Stance on SciFact dev (321 expert-labeled
+claim/evidence pairs; `scripts/eval_stance_scifact.py`; fusion settings
+chosen on the train split):
+
+| Verifier | Accuracy | Macro-F1 | F1 contradict |
+|---|---|---|---|
+| Word-level rules only | 0.52 | 0.44 | 0.23 |
+| NLI model, 8-bit ONNX (no PyTorch) | 0.62 | 0.62 | 0.58 |
+| NLI model, full precision (PyTorch) | 0.67 | 0.68 | 0.72 |
+| Rules + 8-bit ONNX model | 0.65 | 0.63 | 0.54 |
+| **Rules + full-precision model (default)** | **0.70** | **0.69** | **0.71** |
+
+This measures one step (labeling a given evidence passage), not the whole
+system; step 8 benchmarks end to end. The server and web
+interface arrive in step 9.
 
 ## Background
 

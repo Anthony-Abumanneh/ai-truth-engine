@@ -75,16 +75,108 @@ Not medical advice; the UI and README must say so.
 |---|---|---|
 | 1 | Core schemas, config, provider layer | ✅ Done |
 | 2 | Retrieval + evidence engine | ✅ Done |
-| 3 | Scientific evidence sources + study grading | ⏳ **Next** |
-| 4 | Audit mode: claim extraction, verifier, science red flags | Planned |
-| 5 | Analyzer, router, compute budgets, independent solvers | Planned |
+| 3 | Scientific evidence sources + study grading | ✅ Done |
+| 3.5 | Journal signals, Retraction Watch, subject relevance gate | ✅ Done |
+| 4 | Audit mode: claim extraction, verifier, science red flags | ✅ Done |
+| 4.5 | Local NLI model fused with rules | ✅ Done |
+| 5 | Analyzer, router (contextual bandit), compute budgets, independent solvers | ⏳ **Next** |
 | 6 | Critic, judge, calibrated confidence, abstention | Planned |
 | 7 | Orchestrator, evidence tree, feedback loop, watched claims | Planned |
 | 8 | Benchmark (SciFact), baselines A–D, ablations, calibration report card | Planned |
+| 8.5 | Fine-tuning on A100: verifier, evidence reranker, study-design classifier, check-worthiness | Planned |
 | 9 | FastAPI server, CLI, audit-first web UI | Planned |
 | 10 | Tests, end-to-end runs, final docs | Planned |
+| 11 | Deploy + MLOps: Docker, HF Spaces, CI eval gate, model versioning, monitoring | Planned |
+| 12 | Stretch: GRPO fine-tuning of a small LLM with the verifier as reward | Planned |
 
-### Step 3 — scientific evidence sources + study grading (next)
+### Plan additions (agreed 2026-10-06)
+Guiding rule from the user: **accurate, not complex.** Every addition must
+earn its place with a measured gain on held-out data; drop it otherwise.
+Compute: the user has a Colab A100 with 100 compute units (roughly 7–9
+A100-hours; check the live rate). Use it for training only; the engine
+itself must keep running on CPU. Large datasets are welcome.
+
+- **Step 5 router as a contextual bandit** (RL-lite, CPU): per claim choose a
+  strategy (rules only / +NLI / +LLM / deep literature search) from claim
+  features; reward = correctness − λ·cost, learned from stored outcomes
+  (benchmark labels first, user feedback later). Rule-based policy until
+  enough data; log propensities so policies can be evaluated offline.
+- **Step 8.5 fine-tuning** (Colab A100; notebooks in `training/`, models
+  pushed to HF Hub, loaded by the same `nli.py` backends):
+  1. *Verifier* (biggest expected gain): DeBERTa-v3-**large** (and base for
+     CPU latency comparison), starting from MNLI/FEVER/ANLI weights, trained
+     on SciFact train + HealthVer + COVID-Fact + PubHealth + Climate-FEVER
+     (+ SciFact-Open if licensing allows). Map labels to support/
+     contradict/neutral; hard negatives = non-rationale sentences from the
+     cited abstract. Evaluate on SciFact dev only (test labels are hidden);
+     never tune on dev. Report stance F1 and end-to-end effect (ablation).
+     Re-tune fusion thresholds on train afterwards; HARD_SIGNALS may shrink.
+  2. *Evidence reranker*: cross-encoder scoring (claim, sentence) relevance,
+     trained on SciFact rationale sentences vs. other sentences of the cited
+     abstracts (+ MS MARCO / BioASQ if useful). Replaces part of the lexical
+     relevance filter.
+  3. *Study-design classifier*: distant supervision from PubMed publication
+     types (RCT, meta-analysis, systematic review, cohort/observational,
+     case report, animal via MeSH, in vitro) over a large abstract sample
+     (100k+ via E-utilities / PubMed baseline files). Replaces/augments the
+     regex rules in `study_design.py`; keep regex as fallback.
+  4. *Check-worthiness*: small classifier on ClaimBuster / CheckThat!; only
+     keep if it beats the rule score.
+  Rules: train-only tuning, record data/versions/seeds per model, compare
+  against the current model on the same split, keep CPU inference viable.
+- **Step 11 deploy + MLOps**: Docker image (CPU, ~1.5 GB with torch),
+  Hugging Face Spaces deployment, GitHub Actions running tests + the SciFact
+  stance eval as a quality gate (fail on macro-F1 regression), model
+  versions recorded in every trace, monitoring page from stored traces
+  (latency, cost, abstention rate, rule-vs-model agreement as a drift
+  signal), rate limiting / LLM spend caps, prominent medical disclaimer.
+- **Step 12 (stretch) GRPO**: small open LLM (0.5–1.5B) trained to produce
+  answers the verifier scores as supported. Only after 8.5 (a weak verifier
+  invites reward hacking, e.g. hedging everything); include held-out human
+  spot checks and a reward-hacking analysis.
+
+### Step 3 — scientific evidence sources + study grading (done; original brief kept below)
+What landed / decisions made:
+- `science/cache.py` `JsonCache` (data/cache/<ns>/<sha1>.json, secrets stripped
+  from keys) + `CachedFetcher` (rate limit, retries, never raises; offline =
+  cache-only). `papers.py` `PaperRecord` → `to_source` (canonical id `pmid:`,
+  else `openalex:W…`, else `doi:`; title is passage s0; COI statement graded
+  but never used as evidence).
+- `search.py` `ScienceSearch`: keyword query drops "finding words"
+  (improves/prevents/proven…) so it finds studies whatever they concluded;
+  PubMed back-off 6→4→3→2 terms; falsification = same terms restricted to
+  RCT/MA/SR (PubMed `[pt]` filter, OpenAlex `type:review`). Merges the same
+  paper across APIs; rewrites OpenAlex reference ids to canonical ids.
+- **Echo rule for real literature:** a systematic review / meta-analysis is
+  `derived_from` the retrieved primary studies it cites. `CitationGraph` now
+  joins a multi-root source to only one root, so a review pooling trials A
+  and B doesn't merge A and B into one lineage.
+- Study design: front matter > PubMed pub types > negation-aware text cues
+  (title before abstract). Reviews never take prereg/funding from abstract
+  text (it describes the studies they review). Design weight is blended into
+  `methodology`; paper authority = 0.75 + 0.25·(weight − 0.4); retracted →
+  overall ≤ 0.15, tier D; n<50 −0.25, n<100 −0.15.
+- Corpus +13 fictional docs (lumorex retraction, calvetrin mice, brivo cohort,
+  zantorel RRR/ARR, nervaplex in-vitro echo). New front-matter keys:
+  `retracted`, `species`, `design`.
+- Fixtures in `tests/fixtures/` are real recorded responses (creatine/memory
+  search; Wakefield 1998, PMID 9500320, as the retracted example).
+  Live test auto-skips when PubMed is unreachable.
+
+Step 3.5 (added after review of step-3 limitations):
+- `science/venues.py`: OpenAlex `/sources` (batched by id or ISSN). Standing =
+  log-scaled 2-yr mean citedness → ±0.05 on overall. Vetting = on any curated
+  list (`listed_in`: medline, doaj, cwts-core, national lists) or `is_core`;
+  unvetted → −0.1 + "possible predatory venue" note. No hand-made blacklist.
+- `science/retractions.py`: Crossref `updated-by` notices (Retraction Watch
+  data), 20 DOIs per request. retraction/withdrawal/removal → retracted;
+  expression of concern → −0.15. Uses OPENALEX_EMAIL as contact.
+- `ScienceSearch(enrich=True)` runs both batches inside `_ingest`.
+- Subject gate in `EvidenceEngine.gather`: outside sources (papers, web) must
+  mention the claim's subject (first entity, else first keyword) in passage
+  or title. Corpus is exempt (its docs are curated).
+
+Original brief:
 New package `truth_engine/science/`:
 - `pubmed.py` — NCBI E-utilities: `esearch` (term → PMIDs) and `efetch`
   (XML → title, abstract sentences, journal, year, publication types, MeSH).
@@ -111,7 +203,77 @@ New package `truth_engine/science/`:
 - Tests with recorded fixtures; a live smoke test that runs only when the
   network is reachable.
 
-### Steps 4–10 (intended design)
+### Step 4 — audit mode (done)
+- `pipeline/claims.py`: sentence spans → clause split (; / but / whereas) →
+  predicate split (shared subject; noun lists like "memory and focus" stay
+  together) → causal split ("A because B" → A, and A-because-B) → pronoun
+  subject resolution. Tags: `science_kind`, `population` (human unless
+  mice/cells named), `hedged`, `check_worthiness` (threshold 0.45). Optional
+  LLM extraction via `llm=(provider, spec)`.
+- `pipeline/verifier.py` `stance()`: coverage gate (sentence ≥0.3, with title
+  ≥0.4, subject mentioned in title/sentence/neighbour sentence unless
+  coverage ≥0.6) → study caveats neutral → "for X" slot mismatch → polarity
+  (null-result/dispute phrases, or a bare negation *in scope*: next 3 content
+  words minus subject; "no X" scopes over 2) → antonyms → value mismatch
+  (km→m; years/dates exact) → different name → weak-evidence phrases → entail
+  (cov ≥0.65) / partial (≥0.45). Certainty words are ignored for coverage.
+- Verdict: weight = quality × applicability (animal 0.3, cells 0.2,
+  observational for causal 0.5) × stance strength. Derived sources capped at
+  their root's strength; retracted root → 0. A source with an explicit
+  (non-numeric, non-"disputed") contradiction loses its support items; a
+  value mismatch is dropped if the same source states the claimed value.
+  Lineages (citation graph) → max weight each → noisy-OR → S, C. Status:
+  conflicting (both ≥0.4 within 0.2, or certainty claim with C ≥0.35) →
+  UNVERIFIED; C ≥0.5 & C ≥ S+0.2 (or C ≥0.35 & S <0.2) → CONTRADICTED;
+  S ≥0.5 & S ≥ C+0.2 → SUPPORTED / INFERRED / PARTIAL; S ≥0.25 → PARTIAL
+  (SPECULATIVE if hedged). `confidence` is provisional until step 6.
+- Graph paths support at most PARTIAL (stitched facts ≠ proof).
+- "X is clinically proven" (no effect of its own) is judged via the effect
+  claim from the same sentence: SUPPORTED only with tier-A RCT/MA support and
+  no contradiction; CONTRADICTED if the effect is; else UNVERIFIED.
+- LLM verifier (optional `llm=(provider, spec)`): its stance wins for the top
+  8 items; rule/LLM agreement stored as `verifier_agreement`.
+- `pipeline/audit.py`: `audit(text, sources=...)` → `AuditReport`; CLI
+  `python -m truth_engine.pipeline.audit [--live] "text"`.
+- Tuned against 18 hand-written true/false demo claims (17/18; "Collins
+  walked on the Moon" needs world knowledge → LLM). That set is NOT a
+  benchmark; step 8 measures on SciFact.
+
+### Step 4.5 — local NLI verifier (done)
+- Model: `Xenova/DeBERTa-v3-base-mnli-fever-anli`, 8-bit ONNX (244 MB) in
+  `data/models/` (gitignored), via onnxruntime + tokenizers (no PyTorch:
+  the disk had ~2 GB free). `python -m truth_engine.pipeline.nli download`.
+  `TE_NLI=0` disables; tests default to TE_NLI=0 (conftest) and
+  `tests/test_nli.py` covers the model; full suite also passes with TE_NLI=1.
+- **No padding**: this ONNX export gives different outputs for padded
+  inputs (0.35 vs 0.76 entail on the same pair). One pair per run, ~15 ms.
+- `rule_stance()` now returns which signal decided. `fuse()`: HARD_SIGNALS
+  (value, value_match, slot, weak, limitation) keep the rule; otherwise
+  NLI decides at ≥0.7; P(neutral) ≥0.9 dismisses; else rules ×0.7.
+  Rule-"offtopic" sentences: NLI may rescue a paraphrase (entail ≥0.7, ×0.8)
+  but a contradiction needs ≥0.9 and counts ×0.6 (NLI calls different
+  events contradictions: "launched X1" vs "discontinued X1").
+- Premise = sentence, prefixed by title when it never names the subject.
+- `verifier_agreement` = rules vs LLM (if run) else vs NLI.
+- **PyTorch backend added and now default** (`TE_NLI_BACKEND=auto` → torch,
+  else onnx): `MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli` original
+  weights (369 MB), ~80 ms/pair. The 8-bit ONNX export lost real accuracy
+  (got Collins and Einstein-relativity wrong; full model gets both).
+- Thresholds re-tuned for torch on train: NLI_DECIDE 0.5, NLI_DISMISS 0.95,
+  OFFTOPIC_CONTRADICT 0.7 (×0.6). Added hard signal `causal_denial`
+  ("not by / rather than / not because" + the claimed cause). Tried a guard
+  against NLI arithmetic errors on number-heavy sentences: cost ~1 point on
+  SciFact train, removed (so "Zantorel cuts risk in half" vs "0.2% vs 0.4%"
+  is read as a contradiction → UNVERIFIED).
+- Known: loading torch AND onnxruntime in one process crashes at exit
+  (libc++ recursive_mutex) after tests finish; only tests/test_nli.py
+  `any_nli` does this. Results are unaffected.
+- Settings chosen on SciFact **train**; dev numbers in README. SciFact data
+  is in `data/scifact/` (gitignored, 3.1 MB).
+- My 18 hand-made demo claims: rules 17/18 (overfit), fused 15/18. SciFact
+  says the opposite about which is better; trust SciFact.
+
+### Steps 5–10 (intended design)
 - **4 Audit mode:** `pipeline/claims.py` (sentence → atomic claims;
   split conjunctions; tag kind: efficacy / safety / association /
   mechanism / statistic / causal; check-worthiness filter; keep char
@@ -181,7 +343,24 @@ truth_engine/
                      (value-stripped, polarity-flipped, dispute-framed,
                      effect-without-cause) → ranked Retrieved items with
                      contradiction_potential
-data/corpus/         37 demo docs (encyclopedia, research, products, company)
+  pipeline/
+    claims.py        text → atomic claims (+ spans, kind, population, hedging,
+                     check-worthiness); optional LLM extraction
+    verifier.py      stance per evidence sentence; verdict per claim via
+                     lineage-aware noisy-OR; optional LLM second opinion
+    audit.py         step-4 pipeline + CLI
+  science/
+    red_flags.py     11 red-flag checks on claim wording + root studies
+    venues.py        journal standing / vetting (OpenAlex)
+    retractions.py   Crossref / Retraction Watch notices
+    study_design.py  design, evidence-hierarchy weight, n, prereg, funding,
+                     species, retraction → StudyProfile (+ .label)
+    pubmed.py        E-utilities esearch/efetch + XML parser
+    openalex.py      search, work, cited_by, references; abstract rebuild
+    papers.py        PaperRecord (merge across APIs) → Source + Passages
+    search.py        ScienceSearch: queries, merging, review→trial derivation
+    cache.py         JsonCache, RateLimiter, CachedFetcher
+data/corpus/         50 demo docs (encyclopedia, research, products, company)
 data/graph.json      knowledge-graph seed with provenance per triple
 ```
 
@@ -192,8 +371,9 @@ data/graph.json      knowledge-graph seed with provenance per triple
 - Default Anthropic models: `claude-opus-5`, `claude-sonnet-5-5`,
   `claude-haiku-4-5-20251001`. Default OpenAI names (`gpt-4.1`,
   `gpt-4.1-mini`) may be stale; override with `TE_OPENAI_STRONG/FAST`.
-- The cloud session could not reach PubMed, OpenAlex or the SciFact S3
-  bucket. Local machines normally can; verify at the start of step 3.
+- PubMed and OpenAlex are reachable locally (verified in step 3). SciFact S3
+  not yet checked (step 8).
+- Use the project venv: `.venv/bin/python -m pytest -q`.
 
 ## Known gaps / notes
 
@@ -209,6 +389,22 @@ data/graph.json      knowledge-graph seed with provenance per triple
   the pivot.
 - `contradiction_potential` flags "launched" vs "discontinued" as an
   antonym; harmless (the verifier decides stance) but noisy.
+- Literature retrieval is topical, not stance-aware; the subject gate drops
+  off-subject passages but the step-4 verifier still judges stance.
+- Source tier grades the *paper*, not the claim: an animal or cohort study
+  can be tier A/B. Generalization (mouse→human, correlation→causation) is a
+  step-4 red flag, not a quality penalty.
+- Stance is ~70% accurate on SciFact fused (torch). NLI can't do arithmetic
+  and misreads claims attributed to a named study ("Okafor's trial found…")
+  when the name isn't in the text; causal claims rely on the causal_denial
+  rule because NLI reads "not by declining demand" as neutral.
+- Aggregation saturates: three supportive meta-analyses outvote one strong
+  null RCT (live: "Vitamin D prevents depression" → SUPPORTED). Step 6 must
+  weigh design and detect conflict (critic, abstention).
+- Audit runs sequentially (~10 s live for 3–4 claims); parallelize in step 7.
+- Journal standing is citation-based (prestige ≠ truth), hence capped at ±0.05.
+  Subject gate matches "vitamin" for "Vitamin D" via stems (single-letter
+  tokens are dropped), so "vitamin B12" passages can pass.
 
 ## Checks
 

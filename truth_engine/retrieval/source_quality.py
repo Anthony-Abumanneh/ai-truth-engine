@@ -41,29 +41,40 @@ def score_source(src: Source) -> SourceQuality:
     notes: list[str] = []
     meth = TYPE_METHOD.get(src.source_type, 0.5)
     md = src.metadata or {}
-    # Study-design adjustments for papers
+    # Study-design adjustments for papers (graded by science/study_design.py)
+    study = md.get("study") or {}
     if src.source_type in ("paper", "review"):
-        n = md.get("sample_size")
+        if study.get("design"):
+            # blend type default with the design's place in the evidence hierarchy
+            meth = 0.5 * meth + 0.5 * study["weight"]
+            notes.append(study["design"].replace("_", " "))
+        n = study.get("sample_size", md.get("sample_size"))
         try:
             n = int(n) if n is not None else None
         except ValueError:
             n = None
         if n is not None:
-            if n < 100:
+            if n < 50:
+                meth -= 0.25
+                notes.append(f"very small sample (n={n})")
+            elif n < 100:
                 meth -= 0.15
                 notes.append(f"small sample (n={n})")
             elif n >= 500:
                 meth += 0.1
                 notes.append(f"large sample (n={n})")
-        if str(md.get("preregistered", "")).lower() == "true":
+        prereg = study.get("preregistered", md.get("preregistered"))
+        if str(prereg).lower() == "true":
             meth += 0.05
             notes.append("preregistered")
-        elif str(md.get("preregistered", "")).lower() == "false":
+        elif str(prereg).lower() == "false":
             meth -= 0.05
             notes.append("not preregistered")
-        if str(md.get("funding", "")).lower() == "manufacturer":
+        if study.get("funding") == "industry" or str(md.get("funding", "")).lower() == "manufacturer":
             meth -= 0.1
             notes.append("industry-funded")
+        if study.get("species") in ("animal", "in_vitro"):
+            notes.append(f"{study['species'].replace('_', '-')} only: may not apply to humans")
     meth = min(1.0, max(0.0, meth))
     direct = DIRECTNESS.get(src.source_type, 0.5)
     rec = _recency(src.published)
@@ -72,7 +83,21 @@ def score_source(src: Source) -> SourceQuality:
         notes.append(f"derived from {', '.join(src.derived_from)}")
         direct *= 0.7
     overall = 0.40 * src.authority + 0.25 * meth + 0.20 * direct + 0.07 * rec + primary_bonus
-    overall = round(min(1.0, overall), 3)
+    # Journal signals (science/venues.py): small on purpose
+    venue = md.get("venue") or {}
+    if venue.get("standing") is not None:
+        overall += 0.05 * (2 * venue["standing"] - 1)
+    if venue and not venue.get("vetted", True):
+        overall -= 0.1
+        notes.append(f"journal not in MEDLINE/DOAJ/curated lists ({venue.get('name')}): possible predatory venue")
+    for n in md.get("notices") or []:
+        if n.get("type") == "expression_of_concern":
+            overall -= 0.15
+            notes.append(f"expression of concern ({n.get('date') or 'date unknown'})")
+    overall = round(max(0.0, min(1.0, overall)), 3)
+    if study.get("retracted"):
+        overall = min(overall, 0.15)
+        notes.insert(0, "RETRACTED: do not rely on this source")
     tier = "A" if overall >= 0.78 else "B" if overall >= 0.6 else "C" if overall >= 0.38 else "D"
     if src.source_type in ("forum", "marketing", "blog"):
         notes.append(f"low-reliability source type ({src.source_type})")

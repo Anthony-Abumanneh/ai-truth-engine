@@ -165,6 +165,13 @@ class Claim(BaseModel):
     numbers: list[float] = Field(default_factory=list)
     entities: list[str] = Field(default_factory=list)
     is_causal: bool = False
+    # audit mode (step 4)
+    sentence: str = ""                       # the original sentence it came from
+    span: tuple[int, int] | None = None      # char offsets of that sentence in the input
+    science_kind: str = "general"            # efficacy | safety | association | mechanism | statistic | causal | general
+    population: str = "human"                # who the claim is about: human | animal | in_vitro
+    hedged: bool = False                     # "may", "could", "suggests"
+    check_worthiness: float = 1.0
 
 
 class SourceQuality(BaseModel):
@@ -216,6 +223,22 @@ class EvidenceItem(BaseModel):
     relevance: float
     found_by: Literal["supporting_search", "contradiction_search", "graph", "tool", "database"]
     rationale: str = ""
+    applicability: float = 1.0               # does this study's design/species fit the claim? (0..1)
+    weight: float = 0.0                      # quality x applicability x stance strength
+    lineage: int | None = None               # index into ClaimVerdict.lineages
+    llm_stance: Stance | None = None         # second opinion, when an LLM verifier ran
+    rule_stance: Stance | None = None        # what the word-level rules alone said
+    nli: dict[str, float] | None = None      # local NLI model probabilities, when it ran
+
+
+class RedFlag(BaseModel):
+    """A classic distortion of scientific evidence (CONCEPTS.md §5)."""
+    kind: Literal["animal_to_human", "in_vitro_to_human", "correlation_as_causation", "relative_risk_only",
+                  "single_study", "failed_replication", "small_sample", "industry_funded", "retracted",
+                  "overclaimed_certainty", "echo_chamber"]
+    severity: float = Field(ge=0, le=1)
+    message: str
+    source_ids: list[str] = Field(default_factory=list)
 
 
 class ClaimVerdict(BaseModel):
@@ -227,6 +250,13 @@ class ClaimVerdict(BaseModel):
     independent_support_count: int = 0
     source_independence: float = 0.0
     rationale: str = ""
+    support_score: float = 0.0               # noisy-OR over independent supporting lineages
+    contradiction_score: float = 0.0
+    conflicting: bool = False                # strong evidence on both sides
+    supporting_source_count: int = 0         # raw count, for "N sources -> K independent"
+    lineages: list[list[str]] = Field(default_factory=list)
+    red_flags: list[RedFlag] = Field(default_factory=list)
+    verifier_agreement: float | None = None  # rule-based vs LLM stance agreement, when an LLM ran
 
 
 # --------------------------------------------------------------------------- #
@@ -331,6 +361,21 @@ class FinalAnswer(BaseModel):
     uncertainty: list[str] = Field(default_factory=list)
     caveats: list[str] = Field(default_factory=list)
     citations: dict[str, list[str]] = Field(default_factory=dict)  # claim_id -> source ids
+
+
+class AuditReport(BaseModel):
+    """Audit mode output: every check-worthy claim in a text, verified."""
+    id: str = Field(default_factory=lambda: _id("audit"))
+    text: str
+    claims: list[Claim] = Field(default_factory=list)
+    verdicts: list[ClaimVerdict] = Field(default_factory=list)
+    skipped: list[dict[str, Any]] = Field(default_factory=list)   # sentences judged not check-worthy
+    sources: dict[str, Source] = Field(default_factory=dict)
+    retrieval_sources: list[str] = Field(default_factory=list)
+    verifiers: list[str] = Field(default_factory=list)            # e.g. ["rules", "nli:<model>"]
+    errors: list[str] = Field(default_factory=list)
+    latency_s: float = 0.0
+    disclaimer: str = "Not medical advice: this summarizes published evidence and does not replace a clinician."
 
 
 class Trace(BaseModel):

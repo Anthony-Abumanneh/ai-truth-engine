@@ -63,7 +63,9 @@ class CitationGraph:
         pub_owner: dict[str, str] = {}
         for sid in ids:
             find(sid)
-            for r in self.roots(sid):
+            # A synthesis derived from several roots (a review pooling trials A and B)
+            # joins one of them; it must not merge A and B into a single lineage.
+            for r in sorted(self.roots(sid))[:1]:
                 if r in root_owner:
                     union(root_owner[r], sid)
                 else:
