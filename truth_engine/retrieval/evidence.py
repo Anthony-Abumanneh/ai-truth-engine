@@ -145,7 +145,9 @@ class EvidenceEngine:
 
     # ------------------------------------------------------------ retrieval
     def gather(self, claim: Claim, plan: EvidencePlan, k_support: int = 5, k_falsify: int = 4,
-               min_relevance: float = 0.2) -> list[Retrieved]:
+               min_relevance: float = 0.2, follow_up_studies: bool = False) -> list[Retrieved]:
+        """`follow_up_studies`: also read papers that cite the papers found (later
+        replications, failed replications, rebuttals), via OpenAlex."""
         out: dict[str, Retrieved] = {}
         external: dict[str, Source] = {}
         subject = claim_subject(claim)
@@ -210,6 +212,14 @@ class EvidenceEngine:
             hits.sort(key=lambda h: -contradiction_potential(claim.text, h[0].text))
             for p, src in hits[:k_falsify]:
                 consider(p, src, "contradiction_search", "high-evidence literature search")
+        if follow_up_studies and lit:
+            found = [r.source.id for r in out.values() if r.source.id in external][:3]
+            hits = [(p, src) for sid in found for src, ps in self.science.cited_by(sid, k=5) for p in ps]
+            for src in {s.id: s for _, s in hits}.values():
+                external[src.id] = src
+            hits.sort(key=lambda h: -contradiction_potential(claim.text, h[0].text))
+            for p, src in hits[:k_falsify]:
+                consider(p, src, "contradiction_search", "follow-up studies citing the evidence")
         if "graph" in plan.sources:
             for gp in self.graph.multi_hop(claim.text, k=2):
                 if gp.score < 0.3:

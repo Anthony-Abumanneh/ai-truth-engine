@@ -1,55 +1,56 @@
 """Local neural NLI model (CONCEPTS.md §4: natural language inference).
 
-A DeBERTa-v3 cross-encoder fine-tuned on MNLI, FEVER (fact verification)
-and ANLI (adversarial NLI) reads an evidence sentence and a claim *together*
-and outputs P(entailment), P(neutral), P(contradiction). Unlike the word-
-overlap rules, it handles paraphrase and implied contradiction.
+A DeBERTa-v3 cross-encoder fine-tuned on NLI and fact-verification data reads
+an evidence sentence and a claim *together* and outputs P(entailment),
+P(neutral), P(contradiction). Unlike the word-overlap rules, it handles
+paraphrase and implied contradiction.
 
-Two backends, same model:
-  torch  original weights (369 MB) via PyTorch + transformers. Default when
-         installed: the reference implementation, and the one fine-tuning needs.
-  onnx   8-bit quantized export (244 MB) via ONNX Runtime; no PyTorch needed.
+Runs on CPU with PyTorch + transformers. (An 8-bit ONNX export was tried in
+step 4.5 and dropped: it lost real accuracy.)
 
-    python -m truth_engine.pipeline.nli download [torch|onnx]
+    python -m truth_engine.pipeline.nli download [model]
 
-Env: TE_NLI=0 disables it; TE_NLI_BACKEND=torch|onnx|auto (default auto).
+Env: TE_NLI=0 disables it; TE_NLI_MODEL picks a key of MODELS;
+TE_NLI_DEVICE=auto|cpu|mps|cuda (auto: Apple GPU or CUDA when present, else CPU).
 """
 from __future__ import annotations
 
-import json
 import os
 import sys
 import threading
+import warnings
 from functools import lru_cache
 from pathlib import Path
 
-import numpy as np
-
 from ..config import DATA_DIR
 
-BACKENDS = {
-    "torch": ("MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli",
-              ("config.json", "model.safetensors", "tokenizer.json", "tokenizer_config.json",
-               "special_tokens_map.json", "added_tokens.json", "spm.model")),
-    "onnx": ("Xenova/DeBERTa-v3-base-mnli-fever-anli",
-             ("config.json", "tokenizer.json", "onnx/model_quantized.onnx")),
+MODELS = {
+    "base": "MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli",
+    "large": "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli",
 }
+DEFAULT_MODEL = "large"
+REQUIRED = ("config.json", "model.safetensors")
+OPTIONAL = ("tokenizer.json", "tokenizer_config.json", "special_tokens_map.json", "added_tokens.json", "spm.model")
 MAX_TOKENS = 384
 
 
-def model_dir(backend: str) -> Path:
-    return DATA_DIR / "models" / BACKENDS[backend][0].replace("/", "__")
+def model_key() -> str:
+    return os.getenv("TE_NLI_MODEL", DEFAULT_MODEL)
 
 
-def is_downloaded(backend: str) -> bool:
-    return all((model_dir(backend) / f).exists() for f in BACKENDS[backend][1])
+def model_dir(key: str | None = None) -> Path:
+    return DATA_DIR / "models" / MODELS[key or model_key()].replace("/", "__")
 
 
-def download(backend: str = "torch") -> Path:
+def is_downloaded(key: str | None = None) -> bool:
+    return all((model_dir(key) / f).exists() for f in REQUIRED)
+
+
+def download(key: str | None = None) -> Path:
     import httpx
-    repo, files = BACKENDS[backend]
-    out = model_dir(backend)
-    for f in files:
+    repo = MODELS[key or model_key()]
+    out = model_dir(key)
+    for f in REQUIRED + OPTIONAL:
         dest = out / f
         if dest.exists():
             continue
@@ -57,6 +58,8 @@ def download(backend: str = "torch") -> Path:
         tmp = dest.with_suffix(dest.suffix + ".part")
         with httpx.stream("GET", f"https://huggingface.co/{repo}/resolve/main/{f}", follow_redirects=True,
                           timeout=120) as r:
+            if r.status_code == 404 and f in OPTIONAL:
+                continue
             r.raise_for_status()
             with open(tmp, "wb") as fh:
                 for chunk in r.iter_bytes(1 << 20):
@@ -65,34 +68,10 @@ def download(backend: str = "torch") -> Path:
     return out
 
 
-class _Base:
-    name = ""
-    backend = ""
-
-    def __init__(self):
-        self._lock = threading.Lock()
-        self._memo: dict[tuple[str, str], dict[str, float]] = {}
-
-    def predict(self, pairs: list[tuple[str, str]]) -> list[dict[str, float]]:
-        """pairs = [(premise/evidence, hypothesis/claim)] -> [{"entailment": p, "neutral": p, "contradiction": p}]"""
-        todo = [p for p in dict.fromkeys(pairs) if p not in self._memo]
-        if todo:
-            with self._lock:
-                for pair, row in zip(todo, self._run(todo)):
-                    self._memo[pair] = {self.labels[j]: round(float(p), 4) for j, p in enumerate(row)}
-        return [self._memo[p] for p in pairs]
-
-    def _run(self, pairs):  # pragma: no cover - interface
-        raise NotImplementedError
-
-
-class TorchNLIModel(_Base):
-    backend = "torch"
+class NLIModel:
+    """DeBERTa cross-encoder on CPU; answers are memoized per (premise, claim)."""
 
     def __init__(self, path: Path, batch_size: int = 16):
-        super().__init__()
-        import warnings
-
         import torch
         from transformers import AutoModelForSequenceClassification, AutoTokenizer
         from transformers.utils import logging as hf_logging
@@ -101,81 +80,59 @@ class TorchNLIModel(_Base):
         warnings.filterwarnings("ignore", category=FutureWarning, module="torch")
         torch.set_num_threads(max(1, (os.cpu_count() or 2) // 2))
         self.torch = torch
+        self.device = _device(torch)
         self.tok = AutoTokenizer.from_pretrained(path)
         self.model = AutoModelForSequenceClassification.from_pretrained(path, dtype=torch.float32).eval()
+        self.model.to(self.device)
         self.labels = {int(k): v.lower() for k, v in self.model.config.id2label.items()}
-        self.name = BACKENDS["torch"][0]
+        self.name = path.name.replace("__", "/")
         self.batch_size = batch_size
+        self._lock = threading.Lock()
+        self._memo: dict[tuple[str, str], dict[str, float]] = {}
 
-    def _run(self, pairs):
-        out = []
-        with self.torch.inference_mode():
-            for i in range(0, len(pairs), self.batch_size):
-                chunk = pairs[i:i + self.batch_size]
+    def predict(self, pairs: list[tuple[str, str]]) -> list[dict[str, float]]:
+        """pairs = [(premise/evidence, hypothesis/claim)] -> [{"entailment": p, "neutral": p, "contradiction": p}]"""
+        todo = [p for p in dict.fromkeys(pairs) if p not in self._memo]
+        with self._lock, self.torch.inference_mode():
+            for i in range(0, len(todo), self.batch_size):
+                chunk = todo[i:i + self.batch_size]
                 enc = self.tok([p for p, _ in chunk], [h for _, h in chunk], truncation=True,
-                               max_length=MAX_TOKENS, padding=True, return_tensors="pt")
-                out += self.torch.softmax(self.model(**enc).logits, dim=-1).tolist()
-        return out
+                               max_length=MAX_TOKENS, padding=True, return_tensors="pt").to(self.device)
+                for pair, row in zip(chunk, self.torch.softmax(self.model(**enc).logits, dim=-1).tolist()):
+                    self._memo[pair] = {self.labels[j]: round(float(p), 4) for j, p in enumerate(row)}
+        return [self._memo[p] for p in pairs]
 
 
-class OnnxNLIModel(_Base):
-    backend = "onnx"
-
-    def __init__(self, path: Path):
-        super().__init__()
-        import onnxruntime as ort
-        from tokenizers import Tokenizer
-        cfg = json.loads((path / "config.json").read_text())
-        self.labels = {int(k): v.lower() for k, v in cfg["id2label"].items()}
-        self.tok = Tokenizer.from_file(str(path / "tokenizer.json"))
-        # No padding: this export answers differently for a padded sentence
-        # than for the same sentence alone, so each pair runs on its own.
-        self.tok.enable_truncation(MAX_TOKENS)
-        opts = ort.SessionOptions()
-        opts.intra_op_num_threads = max(1, (os.cpu_count() or 2) // 2)
-        self.session = ort.InferenceSession(str(path / "onnx/model_quantized.onnx"), opts,
-                                            providers=["CPUExecutionProvider"])
-        self.inputs = {i.name for i in self.session.get_inputs()}
-        self.name = BACKENDS["onnx"][0] + " (int8)"
-
-    def _run(self, pairs):
-        out = []
-        for e in self.tok.encode_batch(pairs):
-            feed = {"input_ids": np.array([e.ids], dtype=np.int64),
-                    "attention_mask": np.array([e.attention_mask], dtype=np.int64)}
-            if "token_type_ids" in self.inputs:
-                feed["token_type_ids"] = np.array([e.type_ids], dtype=np.int64)
-            logits = self.session.run(None, feed)[0][0]
-            p = np.exp(logits - logits.max())
-            out.append(p / p.sum())
-        return out
+def _device(torch) -> str:
+    choice = os.getenv("TE_NLI_DEVICE", "auto").lower()
+    if choice != "auto":
+        return choice
+    if torch.cuda.is_available():
+        return "cuda"
+    if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
 
 
-def load(backend: str) -> _Base | None:
-    if not is_downloaded(backend):
+def load(key: str | None = None) -> NLIModel | None:
+    if not is_downloaded(key):
         return None
     try:
-        return TorchNLIModel(model_dir("torch")) if backend == "torch" else OnnxNLIModel(model_dir("onnx"))
+        return NLIModel(model_dir(key))
     except Exception:
         return None
 
 
 @lru_cache(maxsize=1)
-def get_nli() -> _Base | None:
-    """The local NLI model, or None when disabled or not downloaded.
-    auto = PyTorch backend if available, else ONNX."""
+def get_nli() -> NLIModel | None:
+    """The local NLI model, or None when disabled or not downloaded."""
     if os.getenv("TE_NLI", "1").lower() in ("0", "false", "no"):
         return None
-    choice = os.getenv("TE_NLI_BACKEND", "auto").lower()
-    for backend in (["torch", "onnx"] if choice == "auto" else [choice]):
-        model = load(backend)
-        if model is not None:
-            return model
-    return None
+    return load()
 
 
 if __name__ == "__main__":
     if sys.argv[1:2] == ["download"]:
-        print("saved to", download(sys.argv[2] if len(sys.argv) > 2 else "torch"))
+        print("saved to", download(sys.argv[2] if len(sys.argv) > 2 else None))
     else:
         print(__doc__)

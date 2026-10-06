@@ -170,9 +170,11 @@ truth_engine/
                       grading (design, sample size, preregistration, funding,
                       species, retraction), journal signals, Retraction Watch
                       notices via Crossref; red flags arrive in step 4
-  pipeline/           claims (atomic claims + spans), verifier (stance, lineages,
-                      six statuses), audit (step-4 pipeline + CLI); analyzer,
-                      router, critic, judge, calibration, orchestrator         (in progress)
+  pipeline/           claims (atomic claims + spans), nli (local DeBERTa model),
+                      verifier (stance, lineages, six statuses), analyzer,
+                      router (tiers, escalation, bandit), solvers (Ask mode),
+                      audit (pipeline + CLI); critic, judge, calibration,
+                      orchestrator                                             (in progress)
   science/red_flags.py  animal/cell→human, correlation→causation, relative
                       risk only, single/failed replication, small sample,
                       industry funding, retraction, echo chamber, "proven"
@@ -196,8 +198,8 @@ tests/
 | 3.5 | Journal signals, Retraction Watch (Crossref), subject relevance gate | ✅ Done |
 | 4 | Audit mode: claim extraction, verifier, science red-flag checks | ✅ Done |
 | 4.5 | Local neural NLI verifier fused with the rules (offline; PyTorch or ONNX) | ✅ Done |
-| 5 | Analyzer, router, compute budgets, independent solvers | ⏳ Next |
-| 6 | Critic, judge, calibrated confidence, abstention | Planned |
+| 5 | Analyzer, router (budget ladder + contextual bandit), escalation, Ask-mode solvers | ✅ Done |
+| 6 | Critic, judge, calibrated confidence, abstention | ⏳ Next |
 | 7 | Orchestrator, evidence tree, feedback loop, watched claims | Planned |
 | 8 | Benchmark, baselines, ablations, calibration report card | Planned |
 | 8.5 | Fine-tuned models (verifier, evidence reranker, study-design classifier) | Planned |
@@ -234,8 +236,7 @@ Python 3.11+, plus `fastapi`, `uvicorn`, `pydantic`, `httpx`, `numpy`, `sympy`.
 
 ```
 python -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m truth_engine.pipeline.nli download     # optional local NLI model (369 MB; needs torch + transformers)
-# lighter alternative without PyTorch: ... nli download onnx   (244 MB, less accurate)
+.venv/bin/python -m truth_engine.pipeline.nli download     # local NLI model (DeBERTa-v3-large, 870 MB, PyTorch)
 .venv/bin/python -m pytest -q
 .venv/bin/python -m truth_engine.pipeline.audit "Veridamine improves sleep quality by 18% and is clinically proven."
 .venv/bin/python -m truth_engine.pipeline.audit --live "Creatine improves memory in older adults."
@@ -253,7 +254,9 @@ chosen on the train split):
 | NLI model, 8-bit ONNX (no PyTorch) | 0.62 | 0.62 | 0.58 |
 | NLI model, full precision (PyTorch) | 0.67 | 0.68 | 0.72 |
 | Rules + 8-bit ONNX model | 0.65 | 0.63 | 0.54 |
-| **Rules + full-precision model (default)** | **0.70** | **0.69** | **0.71** |
+| Rules + base model (full precision) | 0.70 | 0.69 | 0.71 |
+| NLI model, DeBERTa-v3-**large** | 0.75 | 0.76 | 0.79 |
+| **Rules + large model (default)** | **0.77** | **0.77** | **0.80** |
 
 This measures one step (labeling a given evidence passage), not the whole
 system; step 8 benchmarks end to end. The server and web

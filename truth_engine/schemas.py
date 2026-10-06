@@ -373,6 +373,7 @@ class AuditReport(BaseModel):
     sources: dict[str, Source] = Field(default_factory=dict)
     retrieval_sources: list[str] = Field(default_factory=list)
     verifiers: list[str] = Field(default_factory=list)            # e.g. ["rules", "nli:<model>"]
+    routing: dict[str, dict[str, Any]] = Field(default_factory=dict)  # claim_id -> analysis, tiers, escalations
     errors: list[str] = Field(default_factory=list)
     latency_s: float = 0.0
     disclaimer: str = "Not medical advice: this summarizes published evidence and does not replace a clinician."

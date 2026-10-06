@@ -1,7 +1,7 @@
 """Step 4.5: local NLI model + fusion with the rules.
 
-`fuse` is tested without the model. Tests that need the 244 MB model skip
-when it hasn't been downloaded (python -m truth_engine.pipeline.nli download)."""
+`fuse` is tested without the model. Tests that need the model skip when it
+hasn't been downloaded (python -m truth_engine.pipeline.nli download)."""
 import pytest
 
 from truth_engine.pipeline.audit import audit
@@ -23,61 +23,50 @@ def test_hard_rule_signal_beats_model():
 def test_model_decides_soft_cases():
     rule = RuleStance(Stance.ENTAILS, 0.8, "overlap", "overlap")
     assert fuse(rule, P(0.0, 0.05, 0.95))[0] == Stance.CONTRADICTS        # implied contradiction
-    assert fuse(rule, P(0.02, 0.95, 0.03))[0] == Stance.NEUTRAL           # shares words, says nothing
-    st, strength, _ = fuse(rule, P(0.4, 0.3, 0.3))                        # model unsure: rules, weakened
+    assert fuse(rule, P(0.0, 0.995, 0.005))[0] == Stance.NEUTRAL          # shares words, says nothing
+    st, strength, _ = fuse(rule, P(0.35, 0.33, 0.32))                     # model unsure: rules, weakened
     assert st == Stance.PARTIAL and strength < 0.8
 
 
-def test_world_knowledge_with_full_precision_model():
-    model = load("torch")
-    if model is None:
-        pytest.skip("torch backend not available")
-    p = model.predict([("Michael Collins remained in lunar orbit aboard the command module Columbia.",
+def test_world_knowledge(nli):
+    p = nli.predict([("Michael Collins remained in lunar orbit aboard the command module Columbia.",
                         "Michael Collins walked on the Moon.")])[0]
-    assert p["contradiction"] > 0.9          # the 8-bit ONNX export gets this wrong
+    assert p["contradiction"] > 0.9          # the 8-bit ONNX export (step 4.5) got this wrong
 
 
 def test_low_overlap_sentences():
     rule = RuleStance(Stance.NEUTRAL, 0.0, "off-topic", "offtopic")
     assert fuse(rule, P(0.9, 0.05, 0.05))[0] == Stance.ENTAILS            # paraphrase rescued
-    assert fuse(rule, P(0.05, 0.4, 0.55))[0] == Stance.NEUTRAL            # likely a different event
+    assert fuse(rule, P(0.05, 0.5, 0.45))[0] == Stance.NEUTRAL            # likely a different event
     st, strength, _ = fuse(rule, P(0.0, 0.02, 0.98))
     assert st == Stance.CONTRADICTS and strength < 0.7                    # only when very sure, reduced
 
 
 # ------------------------------------------------------------------ with the real model
-@pytest.fixture(scope="module", params=["torch", "onnx"])
-def any_nli(request):
-    model = load(request.param)
-    if model is None:
-        pytest.skip(f"{request.param} NLI backend not installed/downloaded")
-    return model
-
-
 @pytest.fixture(scope="module")
 def nli():
-    model = load("torch") or load("onnx")
+    model = load()
     if model is None:
-        pytest.skip("no NLI model downloaded")
+        pytest.skip("NLI model not downloaded")
     return model
 
 
-def test_model_basic_inference(any_nli):
-    out = any_nli.predict([("Penicillin was discovered in 1928 by Alexander Fleming.",
+def test_model_basic_inference(nli):
+    out = nli.predict([("Penicillin was discovered in 1928 by Alexander Fleming.",
                         "Penicillin was discovered by Louis Pasteur."),
                        ("A man is playing a guitar on stage.", "A man is playing an instrument.")])
     assert out[0]["contradiction"] > 0.9 and out[1]["entailment"] > 0.9
 
 
-def test_answer_does_not_depend_on_batch(any_nli):
-    nli = any_nli
+def test_answer_does_not_depend_on_batch(nli):
     a = ("Michael Collins remained in lunar orbit aboard the command module Columbia.",
          "Michael Collins walked on the Moon.")
     b = ("Apollo 11 was the spaceflight that first landed humans on the Moon, and the commander and the lunar "
          "module pilot landed on 20 July 1969 near the Sea of Tranquility.", "Michael Collins walked on the Moon.")
     alone = nli.predict([a])[0]
     nli._memo.clear()
-    assert nli.predict([b, a])[1] == alone          # padding once changed this answer
+    got = nli.predict([b, a])[1]                      # padded next to a longer pair
+    assert all(abs(got[k] - alone[k]) < 1e-3 for k in alone)
 
 
 @pytest.mark.parametrize("text,want", [

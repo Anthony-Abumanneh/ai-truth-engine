@@ -70,15 +70,14 @@ def main():
     gold = [r[3] for r in rows]
     model = get_nli()
     print(f"SciFact: {len(rows)} claim/evidence pairs {dict(Counter(gold))}; model: "
-          f"{model.name + ' [' + model.backend + ']' if model else 'none'}")
+          f"{model.name if model else 'none'}")
     rules, nli, fused = [], [], []
     t0 = time.time()
-    for claim_text, premise, title, _ in rows:
-        claim = make_claim(claim_text)
-        rs = rule_stance(claim, premise, title)
+    probs = model.predict([(premise, claim) for claim, premise, _, _ in rows]) if model else [None] * len(rows)
+    for (claim_text, premise, title, _), p in zip(rows, probs):
+        rs = rule_stance(make_claim(claim_text), premise, title)
         rules.append(as_label(rs.stance))
-        if model:
-            p = model.predict([(premise, claim_text)])[0]
+        if p:
             nli.append(nli_label(p))
             fused.append(as_label(fuse(rs, p)[0]))
     print(f"({time.time() - t0:.1f}s)")

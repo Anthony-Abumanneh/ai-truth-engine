@@ -106,7 +106,7 @@ class RuleStance(NamedTuple):
 
 # Rule signals precise enough to overrule the neural model: NLI models are weak
 # with numbers and "for X" slots; weak-evidence and caveat phrases are explicit.
-# Thresholds below were chosen on SciFact *train* with the PyTorch backend
+# Thresholds below were chosen on SciFact *train* with the large DeBERTa model
 # (scripts/eval_stance_scifact.py reports on dev):
 # "different name" and null-result phrases were no better than the model there.
 HARD_SIGNALS = {"value", "value_match", "slot", "weak", "limitation", "causal_denial"}
@@ -223,10 +223,10 @@ def applicability(claim: Claim, src: Source) -> tuple[float, list[str]]:
 
 
 # --------------------------------------------------------------------------- rules + NLI fusion
-NLI_DECIDE = 0.5          # probability at which the model's label is taken
-OFFTOPIC_CONTRADICT = 0.7  # a low-overlap sentence needs this much to count against a claim...
+NLI_DECIDE = 0.4          # probability at which the model's label is taken
+OFFTOPIC_CONTRADICT = 0.5  # a low-overlap sentence needs this much to count against a claim...
 OFFTOPIC_WEIGHT = 0.6      # ...and then counts at reduced strength (often a different event)
-NLI_DISMISS = 0.95        # P(neutral) at which a soft rule signal is discarded
+NLI_DISMISS = 0.99        # P(neutral) at which a soft rule signal is discarded
 
 
 def fuse(rule: RuleStance, probs: dict[str, float]) -> tuple[Stance, float, str]:

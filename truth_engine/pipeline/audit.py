@@ -5,6 +5,7 @@
 
     python -m truth_engine.pipeline.audit "Veridamine improves sleep by 18% and is clinically proven."
     python -m truth_engine.pipeline.audit --live "Creatine improves memory in older adults."
+    python -m truth_engine.pipeline.audit --live --max-tier=maximum "..."
 
 Claims like "X is clinically proven" carry no effect of their own; they are
 verified through the effect stated next to them in the same sentence and
@@ -23,10 +24,11 @@ from ..schemas import AuditReport, Claim, ClaimVerdict, EvidenceStatus
 from ..science.red_flags import red_flags
 from ..textutils import content_tokens, short
 from .claims import CERTAINTY, CHECK_WORTHY_THRESHOLD, extract_claims
+from ..schemas import BudgetTier
+from .analyzer import analyze
+from .router import LIVE_ONLY, Router, Strategy
 from .verifier import Verifier, study_of
 
-OFFLINE_SOURCES = ["corpus", "graph"]
-LIVE_SOURCES = ["corpus", "graph", "pubmed", "openalex"]
 
 
 def _certainty_only(claim: Claim) -> bool:
@@ -54,50 +56,121 @@ def _certainty_verdict(claim: Claim, effect: ClaimVerdict) -> ClaimVerdict:
     return v
 
 
-def audit(text: str, *, sources: list[str] | None = None, engine: EvidenceEngine | None = None,
+class _Run:
+    """Per-audit state: the evidence engine, every source seen, and one verifier
+    per (NLI, LLM) combination, built on first use."""
+
+    def __init__(self, engine: EvidenceEngine, llm_verifier):
+        self.engine = engine
+        self.known = dict(engine.store.sources)
+        self.llm_verifier = llm_verifier
+        self._verifiers: dict[tuple[bool, bool], Verifier] = {}
+        self.used: set[str] = set()
+
+    def verifier(self, nli: bool, llm: bool) -> Verifier:
+        key = (nli, llm and self.llm_verifier is not None)
+        if key not in self._verifiers:
+            v = Verifier(self.known, llm=self.llm_verifier if key[1] else None, nli="auto" if nli else None,
+                         context_fn=lambda pid: " ".join(p.text for p in self.engine.store.neighbors(pid)))
+            self._verifiers[key] = v
+            self.used |= {"rules"} | ({f"nli:{v.nli.name}"} if v.nli else set()) | (
+                {f"llm:{self.llm_verifier[1].name}"} if key[1] else set())
+        return self._verifiers[key]
+
+    def check(self, claim: Claim, st: Strategy) -> ClaimVerdict:
+        eng = self.engine
+        retrieved = eng.gather(claim, eng.plan(claim, list(st.sources)), k_support=st.k_support,
+                               k_falsify=st.k_falsify, follow_up_studies=st.follow_up_studies)
+        self.known.update(eng.last_external_sources)
+        if LIVE_ONLY & set(st.sources):
+            self.known.update(eng.science.sources)
+        return self.verifier(st.nli, st.llm).verify(claim, retrieved)
+
+
+def audit(text: str, *, live: bool = False, max_tier: BudgetTier | None = None, budget: BudgetTier | None = None,
+          sources: list[str] | None = None, engine: EvidenceEngine | None = None, router: Router | None = None,
           llm_extractor=None, llm_verifier=None) -> AuditReport:
+    """Audit every check-worthy claim in `text`.
+
+    live      allow PubMed / OpenAlex / web (network); otherwise corpus + graph only
+    budget    force the starting tier (default: router decides per claim)
+    max_tier  highest tier escalation may reach (default: high; maximum for high-risk claims)
+    sources   force one fixed pass over these sources, no routing (reproducible runs)
+    """
     t0 = time.time()
     engine = engine or EvidenceEngine()
-    sources = sources or OFFLINE_SOURCES
+    run = _Run(engine, llm_verifier)
+    router = router or Router(live=live, has_web=engine.web.available, has_llm=llm_verifier is not None,
+                              has_nli=run.verifier(True, False).nli is not None)
     all_claims = extract_claims(text, include_skipped=True, llm=llm_extractor)
     claims = [c for c in all_claims if c.check_worthiness >= CHECK_WORTHY_THRESHOLD]
-    report = AuditReport(text=text, claims=claims, retrieval_sources=sources,
+    report = AuditReport(text=text, claims=claims,
                          skipped=[{"text": c.text, "span": c.span, "check_worthiness": c.check_worthiness}
                                   for c in all_claims if c.check_worthiness < CHECK_WORTHY_THRESHOLD])
-    known = dict(engine.store.sources)
-    verifier = Verifier(known, llm=llm_verifier,
-                        context_fn=lambda pid: " ".join(p.text for p in engine.store.neighbors(pid)))
-    report.verifiers = ["rules"] + ([f"nli:{verifier.nli.name}"] if verifier.nli else []) + (
-        [f"llm:{llm_verifier[1].name}"] if llm_verifier else [])
     by_sentence: dict[tuple, ClaimVerdict] = {}
     deferred: list[Claim] = []
+    all_sources: set[str] = set()
     for claim in claims:
         if _certainty_only(claim):
             deferred.append(claim)
             continue
-        retrieved = engine.gather(claim, engine.plan(claim, sources))
-        known.update(engine.last_external_sources)
-        if "pubmed" in sources or "openalex" in sources:
-            known.update(engine.science.sources)
-        v = verifier.verify(claim, retrieved)
-        v.red_flags = red_flags(claim, v, known, engine.store.document_text)
+        analysis = analyze(claim.text)
+        if sources is not None:
+            st = router.strategy(BudgetTier.LOW)
+            st = Strategy(tuple(sources), st.nli, False, 5, 4, False, 0.0, 0.0)
+            v = run.check(claim, st)
+            route = {"routing_source": "forced", "passes": [{"sources": list(sources), "status": v.status.value}]}
+        else:
+            v, route = _routed(claim, analysis, run, router, budget, max_tier)
+        all_sources |= {src for p in route["passes"] for src in p["sources"]}
+        route["analysis"] = {"domain": analysis.domain.value, "type": analysis.question_type.value,
+                             "difficulty": analysis.difficulty, "risk": analysis.risk.value,
+                             "budget": analysis.compute_budget.value}
+        report.routing[claim.id] = route
+        v.red_flags = red_flags(claim, v, run.known, engine.store.document_text)
         report.verdicts.append(v)
         by_sentence.setdefault(claim.span, v)
     for claim in deferred:
         effect = by_sentence.get(claim.span)
         if effect is None:              # nothing else in the sentence: verify the bare claim
-            effect = verifier.verify(claim, engine.gather(claim, engine.plan(claim, sources)))
+            effect = run.check(claim, router.strategy(BudgetTier.LOW))
         v = _certainty_verdict(claim, effect)
-        v.red_flags = red_flags(claim, v, known, engine.store.document_text)
+        v.red_flags = red_flags(claim, v, run.known, engine.store.document_text)
         report.verdicts.append(v)
+        report.routing[claim.id] = {"routing_source": "via effect claim", "passes": []}
     order = {c.id: i for i, c in enumerate(claims)}
     report.verdicts.sort(key=lambda v: order[v.claim_id])
     used = {i.source.id for v in report.verdicts for i in v.supporting + v.contradicting}
-    report.sources = {sid: known[sid] for sid in used if sid in known}
-    if "pubmed" in sources or "openalex" in sources:
+    report.sources = {sid: run.known[sid] for sid in used if sid in run.known}
+    report.retrieval_sources = sorted(all_sources)
+    report.verifiers = sorted(run.used, key=lambda x: ("rules", "nli", "llm").index(x.split(":")[0]))
+    if LIVE_ONLY & all_sources:
         report.errors = list(engine.science.errors)
     report.latency_s = round(time.time() - t0, 3)
     return report
+
+
+def _routed(claim: Claim, analysis, run: _Run, router: Router, budget, max_tier) -> tuple[ClaimVerdict, dict]:
+    """Start at the routed tier; climb while the verdict is weak and the cap allows."""
+    cap = router.cap(analysis, max_tier)
+    if budget is not None:
+        tier, source, p = budget, "forced", 1.0
+    else:
+        tier, source, p = router.start_tier(analysis, cap)
+    passes = []
+    while True:
+        st = router.strategy(tier)
+        t = time.time()
+        v = run.check(claim, st)
+        passes.append({"tier": tier.value, "sources": list(st.sources), "nli": st.nli, "llm": st.llm,
+                       "status": v.status.value, "confidence": v.confidence, "latency_s": round(time.time() - t, 3)})
+        reason = router.should_escalate(v, tier, cap)
+        if not reason:
+            break
+        passes[-1]["escalated_because"] = reason
+        tier = router.next_useful_tier(tier, cap)
+    return v, {"routing_source": source, "propensity": p, "start_tier": passes[0]["tier"], "final_tier": tier.value,
+               "cap": cap.value, "passes": passes}
 
 
 # --------------------------------------------------------------------------- CLI
@@ -118,6 +191,11 @@ def render(report: AuditReport) -> str:
         for f in v.red_flags:
             lines.append(f"      ⚑ {f.kind.replace('_', ' ')}: {f.message}")
         lines.append(f"      Provisional confidence: {v.confidence:.2f}")
+        route = report.routing.get(v.claim_id, {})
+        if route.get("passes") and route.get("routing_source") != "forced":
+            steps = " -> ".join(p["tier"] + (f" ({p['escalated_because']})" if p.get("escalated_because") else "")
+                                for p in route["passes"])
+            lines.append(f"      Route [{route['routing_source']}]: {steps}")
     if report.skipped:
         lines.append("\n  Not checked (opinion, question, instruction or filler): "
                      + "; ".join(f"\"{s['text']}\"" for s in report.skipped))
@@ -130,8 +208,9 @@ def render(report: AuditReport) -> str:
 
 def main(argv: list[str]) -> None:
     live = "--live" in argv
-    text = " ".join(a for a in argv if a != "--live") or sys.stdin.read()
-    print(render(audit(text, sources=LIVE_SOURCES if live else OFFLINE_SOURCES)))
+    cap = next((BudgetTier(a.split("=", 1)[1]) for a in argv if a.startswith("--max-tier=")), None)
+    text = " ".join(a for a in argv if not a.startswith("--")) or sys.stdin.read()
+    print(render(audit(text, live=live, max_tier=cap)))
 
 
 if __name__ == "__main__":

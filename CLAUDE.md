@@ -79,8 +79,8 @@ Not medical advice; the UI and README must say so.
 | 3.5 | Journal signals, Retraction Watch, subject relevance gate | ✅ Done |
 | 4 | Audit mode: claim extraction, verifier, science red flags | ✅ Done |
 | 4.5 | Local NLI model fused with rules | ✅ Done |
-| 5 | Analyzer, router (contextual bandit), compute budgets, independent solvers | ⏳ **Next** |
-| 6 | Critic, judge, calibrated confidence, abstention | Planned |
+| 5 | Analyzer, router (contextual bandit), compute budgets, independent solvers | ✅ Done |
+| 6 | Critic, judge, calibrated confidence, abstention | ⏳ **Next** |
 | 7 | Orchestrator, evidence tree, feedback loop, watched claims | Planned |
 | 8 | Benchmark (SciFact), baselines A–D, ablations, calibration report card | Planned |
 | 8.5 | Fine-tuning on A100: verifier, evidence reranker, study-design classifier, check-worthiness | Planned |
@@ -268,12 +268,49 @@ New package `truth_engine/science/`:
 - Known: loading torch AND onnxruntime in one process crashes at exit
   (libc++ recursive_mutex) after tests finish; only tests/test_nli.py
   `any_nli` does this. Results are unaffected.
+- **Later in 4.5 (after disk was freed): ONNX dropped entirely** (crashed at
+  exit alongside torch; less accurate). **Default model is now
+  DeBERTa-v3-large** (`MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli`,
+  870 MB; `TE_NLI_MODEL=base` for the 369 MB one). Batched inference ~40–55 ms
+  per pair on CPU or Apple GPU (`TE_NLI_DEVICE`, auto picks cuda/mps/cpu).
+  Re-tuned on train: NLI_DECIDE 0.4, NLI_DISMISS 0.99, OFFTOPIC_CONTRADICT
+  0.5; all six hard signals kept. Dev: fused 0.766 acc / 0.771 macro-F1.
 - Settings chosen on SciFact **train**; dev numbers in README. SciFact data
   is in `data/scifact/` (gitignored, 3.1 MB).
 - My 18 hand-made demo claims: rules 17/18 (overfit), fused 15/18. SciFact
   says the opposite about which is better; trust SciFact.
 
-### Steps 5–10 (intended design)
+### Step 5 — analyzer + router (done)
+- `pipeline/analyzer.py` `analyze(text)` → `QuestionAnalysis`: domain by
+  lexicon hits, type (efficacy claims → causal), difficulty from named
+  `signals`, risk (high = medical high-risk terms or safety), budget from a
+  difficulty × risk grid, tools.
+- `pipeline/router.py`: `STRATEGIES` per tier (sources, NLI, LLM, k, follow-up
+  studies). `Router.strategy()` strips what's unavailable (no `live` → no
+  PubMed/OpenAlex/web; no key → no web/LLM). Escalation climbs to the next
+  tier that *does something different* while the verdict has no evidence,
+  conflicts, is unverified, or confidence < 0.35; cap = high (maximum for
+  high-risk). `BanditPolicy` = disjoint LinUCB + ε-greedy with logged
+  propensities, `reward = correct − 0.05·est_cost`, `ips_value()` for
+  offline evaluation, JSON save/load at data/router_policy.json. It takes
+  over from rules only after `min_samples` (200) updates; training data
+  comes from step 8 benchmark runs. Tested on a synthetic world only.
+- `EvidenceEngine.gather(follow_up_studies=True)` (high+, live): reads
+  papers citing the found papers (OpenAlex cited_by) as falsification hits.
+- `audit(text, live=, max_tier=, budget=, sources=)`: routed per claim;
+  `sources=` forces one fixed pass (routing_source "forced").
+  `AuditReport.routing[claim_id]` = analysis, tiers, passes, escalation
+  reasons. CLI shows the route; `--max-tier=`.
+- `pipeline/solvers.py` (Ask mode, step 6/7 will judge + assemble):
+  yes/no question → claim (verify it); else graph multi-hop + swift (BM25) +
+  scholar (vector) + sage (quality-weighted hybrid) + any LLMs; short
+  answers type-aware (who → person, no demonyms). `diversity()` clusters
+  short answers; flags same-corpus agreement as correlated. Deferred (pivot):
+  math/code/SQL solvers from the general spec.
+- Live: "Vitamin D prevents depression" now escalates medium → high and ends
+  UNVERIFIED (conflicting) instead of SUPPORTED.
+
+### Steps 6–10 (intended design)
 - **4 Audit mode:** `pipeline/claims.py` (sentence → atomic claims;
   split conjunctions; tag kind: efficacy / safety / association /
   mechanism / statistic / causal; check-worthiness filter; keep char
@@ -344,6 +381,10 @@ truth_engine/
                      effect-without-cause) → ranked Retrieved items with
                      contradiction_potential
   pipeline/
+    analyzer.py      claim/question → domain, type, difficulty, risk, budget
+    router.py        tier strategies, escalation, LinUCB bandit, IPS
+    solvers.py       Ask-mode candidate answers + diversity report
+    nli.py           local DeBERTa NLI (PyTorch), memoized, cuda/mps/cpu
     claims.py        text → atomic claims (+ spans, kind, population, hedging,
                      check-worthiness); optional LLM extraction
     verifier.py      stance per evidence sentence; verdict per claim via
@@ -401,7 +442,11 @@ data/graph.json      knowledge-graph seed with provenance per triple
 - Aggregation saturates: three supportive meta-analyses outvote one strong
   null RCT (live: "Vitamin D prevents depression" → SUPPORTED). Step 6 must
   weigh design and detect conflict (critic, abstention).
-- Audit runs sequentially (~10 s live for 3–4 claims); parallelize in step 7.
+- Audit runs sequentially (~30 s live, cold cache, for 4 claims with
+  escalation); parallelize in step 7.
+- Multi-hop questions: extractive solvers agree on the intermediate entity
+  (Einstein) while the graph gets the answer (Germany); majority vote is
+  wrong there. Step 6's judge must weigh solver type / verification.
 - Journal standing is citation-based (prestige ≠ truth), hence capped at ±0.05.
   Subject gate matches "vitamin" for "Vitamin D" via stems (single-letter
   tokens are dropped), so "vitamin B12" passages can pass.
