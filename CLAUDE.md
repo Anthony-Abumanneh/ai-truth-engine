@@ -84,6 +84,7 @@ Not medical advice; the UI and README must say so.
 | 7 | Orchestrator, evidence tree, feedback loop, watched claims | ✅ Done |
 | 8 | Benchmark (SciFact), baselines A–D, ablations, calibration report card | ⏳ **Next** |
 | 8.5 | Fine-tuning on A100: verifier, evidence reranker, study-design classifier, check-worthiness | Planned |
+| 8.6 | Open-access full text (PubMed Central / Europe PMC) with reranked passage selection | Planned |
 | 9 | FastAPI server, CLI, audit-first web UI | Planned |
 | 10 | Tests, end-to-end runs, final docs | Planned |
 | 11 | Deploy + MLOps: Docker, HF Spaces, CI eval gate, model versioning, monitoring | Planned |
@@ -124,6 +125,14 @@ itself must keep running on CPU. Large datasets are welcome.
      keep if it beats the rule score.
   Rules: train-only tuning, record data/versions/seeds per model, compare
   against the current model on the same split, keep CPU inference viable.
+- **Step 8.6 open-access full text** (after the 8.5 reranker): fetch full
+  text for open-access papers via PubMed Central (E-utilities `efetch
+  db=pmc`, JATS XML) or the Europe PMC REST API (by PMID/DOI); Unpaywall as a
+  DOI fallback. Parse sections, tables, funding and COI statements (feed
+  study grading: funding/COI, methods, sample size, subgroups). A paper is
+  ~200–400 sentences, so the reranker picks the top passages before NLI.
+  Cache everything (data/cache). Measure: SciFact-Open / live claims with vs
+  without full text. Paywalled papers stay abstract-only.
 - **Step 11 deploy + MLOps**: Docker image (CPU, ~1.5 GB with torch),
   Hugging Face Spaces deployment, GitHub Actions running tests + the SciFact
   stance eval as a quality gate (fail on macro-F1 regression), model
@@ -504,7 +513,9 @@ data/graph.json      knowledge-graph seed with provenance per triple
 - Default Anthropic models: `claude-opus-5`, `claude-sonnet-5-5`,
   `claude-haiku-4-5-20251001`. Default OpenAI names (`gpt-4.1`,
   `gpt-4.1-mini`) may be stale; override with `TE_OPENAI_STRONG/FAST`.
-- PubMed and OpenAlex are reachable locally (verified in step 3). SciFact S3
+- PubMed and OpenAlex are reachable locally (verified in step 3).
+- Keys go in `~/ai-truth-engine/.env` (gitignored; loaded by config.py,
+  real env vars win; `.env.example` lists them). Never commit or echo keys. SciFact S3
   not yet checked (step 8).
 - Use the project venv: `.venv/bin/python -m pytest -q`.
 - **Hardware: the user's Mac is arm64 with 8 GB RAM** (disk was nearly full;

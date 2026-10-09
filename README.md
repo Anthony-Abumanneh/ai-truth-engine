@@ -127,7 +127,8 @@ Add keys and it upgrades automatically — no code changes:
 | `TE_EMBEDDINGS=openai` or `st` | Neural embeddings instead of the offline hashing embedder |
 | `TE_OFFLINE=1` | Force offline mode even when keys are present |
 
-Model names per role can be overridden with `TE_ANTHROPIC_STRONG`,
+Put keys in a `.env` file in the project folder (see `.env.example`; it is
+gitignored), or export them in your shell. Model names per role can be overridden with `TE_ANTHROPIC_STRONG`,
 `TE_ANTHROPIC_MID`, `TE_ANTHROPIC_FAST`, `TE_OPENAI_STRONG`, `TE_OPENAI_FAST`.
 
 ## Measuring whether it actually works
@@ -204,6 +205,7 @@ tests/
 | 7 | Orchestrator, evidence tree, feedback loop, watched claims | ✅ Done |
 | 8 | Benchmark, baselines, ablations, calibration report card | ⏳ Next |
 | 8.5 | Fine-tuned models (verifier, evidence reranker, study-design classifier) | Planned |
+| 8.6 | Open-access full text (PubMed Central / Europe PMC) | Planned |
 | 9 | API, CLI and audit-first web interface | Planned |
 | 10 | Tests, end-to-end verification, docs | Planned |
 | 11 | Deployment and MLOps (Docker, CI quality gate, monitoring) | Planned |

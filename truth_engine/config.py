@@ -20,6 +20,23 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def _load_dotenv(path: Path = ROOT / ".env") -> None:
+    """Read KEY=VALUE lines from the project's .env (gitignored) into the
+    environment. Real environment variables win; keys are never written anywhere."""
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+
+if os.getenv("TE_NO_DOTENV") != "1":
+    _load_dotenv()
 DATA_DIR = Path(os.getenv("TRUTH_ENGINE_DATA", ROOT / "data"))
 DB_PATH = Path(os.getenv("TRUTH_ENGINE_DB", DATA_DIR / "truth_engine.sqlite"))
 
