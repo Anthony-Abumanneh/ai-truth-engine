@@ -178,7 +178,8 @@ truth_engine/
   science/red_flags.py  animal/cell→human, correlation→causation, relative
                       risk only, single/failed replication, small sample,
                       industry funding, retraction, echo chamber, "proven"
-  feedback/           trace store, learned router, watched claims             (planned)
+  feedback/           SQLite trace store (spec §14 records), user feedback,
+                      watched claims, learning router rewards from outcomes
   bench/              datasets, baselines, metrics, ablations, report card    (planned)
   api/                FastAPI server with streaming investigations            (planned)
 web/                  audit-first web interface                               (planned)
@@ -200,8 +201,8 @@ tests/
 | 4.5 | Local neural NLI verifier fused with the rules (offline; PyTorch or ONNX) | ✅ Done |
 | 5 | Analyzer, router (budget ladder + contextual bandit), escalation, Ask-mode solvers | ✅ Done |
 | 6 | Critic, judge, calibrated confidence, abstention | ✅ Done |
-| 7 | Orchestrator, evidence tree, feedback loop, watched claims | ⏳ Next |
-| 8 | Benchmark, baselines, ablations, calibration report card | Planned |
+| 7 | Orchestrator, evidence tree, feedback loop, watched claims | ✅ Done |
+| 8 | Benchmark, baselines, ablations, calibration report card | ⏳ Next |
 | 8.5 | Fine-tuned models (verifier, evidence reranker, study-design classifier) | Planned |
 | 9 | API, CLI and audit-first web interface | Planned |
 | 10 | Tests, end-to-end verification, docs | Planned |

@@ -387,7 +387,8 @@ class AuditReport(BaseModel):
 class Trace(BaseModel):
     """One complete investigation. Field names follow spec §14."""
     query_id: str = Field(default_factory=lambda: _id("q"))
-    question: str
+    question: str                            # the question (ask) or the text (audit)
+    mode: Literal["audit", "ask"] = "ask"
     created_at: float = Field(default_factory=time.time)
     analysis: QuestionAnalysis | None = None
     plan: ComputePlan | None = None
@@ -408,6 +409,10 @@ class Trace(BaseModel):
     tokens_in: int = 0
     tokens_out: int = 0
     disabled_components: list[str] = Field(default_factory=list)
+    routing: dict[str, dict[str, Any]] = Field(default_factory=dict)   # claim_id -> route (see AuditReport)
+    skipped: list[dict[str, Any]] = Field(default_factory=list)
+    verifiers: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
     human_feedback: dict[str, Any] | None = None
     benchmark_score: float | None = None
 

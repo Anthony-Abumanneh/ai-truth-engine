@@ -89,6 +89,17 @@ EXPECTED_TYPE = [(r"\bwhich country\b|\bwhat country\b", {"country"}), (r"\bwhic
 DEMONYM = re.compile(r"^[A-Z][a-z]+(?:ish|ian|ese|ean|ic|i)$")
 
 
+def answer_type_ok(question: str, value: str) -> bool:
+    """False when the question asks for a kind of thing (who -> person, which
+    country -> country) and the knowledge graph knows `value` is something else."""
+    want = next((t for rx, t in EXPECTED_TYPE if re.search(rx, question, re.I)), set())
+    if not want or not value:
+        return True
+    graph = get_graph()
+    etype = graph.types.get(graph.canonical(value))
+    return etype is None or etype == "entity" or etype in want
+
+
 def _short(question: str, sentence: str) -> str:
     """A short answer for a wh-question: the named thing in the sentence that
     the question doesn't already mention, preferring the type the question asks

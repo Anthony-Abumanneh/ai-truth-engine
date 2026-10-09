@@ -11,6 +11,7 @@ Responsibilities beyond calling the two APIs:
 from __future__ import annotations
 
 import re
+import threading
 
 from ..schemas import Passage, Source
 from ..textutils import STOPWORDS, quantities, words
@@ -52,6 +53,7 @@ class ScienceSearch:
         self.sources: dict[str, Source] = {}          # everything seen, for the citation graph
         self._aliases: dict[str, str] = {}             # "openalex:W…" -> canonical source id
         self._memo: dict[tuple, list[tuple[Source, list[Passage]]]] = {}
+        self._lock = threading.RLock()      # claims run in parallel: ingest mutates shared maps
 
     @property
     def errors(self) -> list[str]:
@@ -108,7 +110,15 @@ class ScienceSearch:
         return self._ingest(self.openalex.cited_by(oa_id, k))
 
     # --------------------------------------------------------------- merging
+    def snapshot(self) -> dict[str, Source]:
+        with self._lock:
+            return dict(self.sources)
+
     def _ingest(self, records: list[PaperRecord]) -> list[tuple[Source, list[Passage]]]:
+        with self._lock:
+            return self._ingest_locked(records)
+
+    def _ingest_locked(self, records: list[PaperRecord]) -> list[tuple[Source, list[Passage]]]:
         merged: dict[str, PaperRecord] = {}
         by_key: dict[str, str] = {}
         for r in records:

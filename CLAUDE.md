@@ -81,8 +81,8 @@ Not medical advice; the UI and README must say so.
 | 4.5 | Local NLI model fused with rules | ✅ Done |
 | 5 | Analyzer, router (contextual bandit), compute budgets, independent solvers | ✅ Done |
 | 6 | Critic, judge, calibrated confidence, abstention | ✅ Done |
-| 7 | Orchestrator, evidence tree, feedback loop, watched claims | ⏳ **Next** |
-| 8 | Benchmark (SciFact), baselines A–D, ablations, calibration report card | Planned |
+| 7 | Orchestrator, evidence tree, feedback loop, watched claims | ✅ Done |
+| 8 | Benchmark (SciFact), baselines A–D, ablations, calibration report card | ⏳ **Next** |
 | 8.5 | Fine-tuning on A100: verifier, evidence reranker, study-design classifier, check-worthiness | Planned |
 | 9 | FastAPI server, CLI, audit-first web UI | Planned |
 | 10 | Tests, end-to-end runs, final docs | Planned |
@@ -365,7 +365,44 @@ New package `truth_engine/science/`:
   i.e. stance/aggregation, not search. That's what step 8.5's fine-tuned
   verifier + reranker should target.
 
-### Steps 7–10 (intended design)
+### Step 7 — orchestrator, traces, feedback, watched claims (done)
+- `pipeline/orchestrator.py` `Orchestrator(live, max_tier, components,
+  store, workers, …)`: `audit(text, on_event)`, `ask(question, on_event)`,
+  `watch()`, `recheck_watched()`. Every run → `Trace` (mode audit/ask,
+  claims, verdicts, sources, routing, events, tree, final) saved to SQLite.
+- `audit()` = extraction + `audit_claims()` (also used by Ask);
+  `workers>1` runs claims in a thread pool (default `settings.max_parallel`
+  when live, 1 offline); `emit(StageEvent)` callback for the UI log.
+  Thread safety: sources synced from each search's own results (not
+  engine state); `ScienceSearch` ingest under an RLock.
+  Live 4 claims: ~25 s with 6 workers vs ~32 s sequential; bound by
+  PubMed's 3 req/s without `NCBI_API_KEY` and the CPU NLI lock.
+- Ask: yes/no → question_to_claim → verify → "Yes / Yes, partly / No /
+  The evidence isn't good enough to say (leans …)". Open questions →
+  solvers → `answer_type_ok` (graph entity type vs who/which-country…) →
+  `to_statement(question, answer)` → verify each distinct answer →
+  `judge_candidates` (verified, not majority). Multi-hop "country of the
+  person who developed GR" now abstains instead of answering "Einstein".
+- `pipeline/tree.py`: root → claims → supports/contradicts per lineage
+  (derived copies nested) → red flags (relation "rejected").
+- `feedback/traces.py` `TraceStore` (data/truth_engine.sqlite,
+  `TRUTH_ENGINE_DB`): traces (§14 record + full JSON), feedback (label must
+  be an EvidenceStatus value), watched (history; `record_check` reports
+  status changes and confidence moves ≥ 0.15).
+- `feedback/learning.py`: feedback → outcome rows → `update_router`
+  (reward = correct − 0.05·cost of tiers used, arm = start tier) and
+  `calibration_rows`; `learn_from_feedback` consumes feedback once.
+- Router: decisive verdicts built from one side only (or one lineage)
+  escalate when a higher tier searches more *sources* (live literature,
+  follow-up studies). Live melatonin: CONTRADICTED 0.76 from one
+  meta-analysis → escalated → UNVERIFIED (conflicting meta-analyses).
+  Offline/SciFact behaviour unchanged.
+- Known: calibrator is fitted on SciFact (closed corpus, one evidence
+  abstract per claim) and over-trusts single sources live; live stance
+  errors remain (e.g. "low-dose melatonin is a useful strategy" read as
+  contradicting; a Mediterranean-diet trial counted as fish-oil evidence).
+
+### Steps 8–10 (intended design)
 - **4 Audit mode:** `pipeline/claims.py` (sentence → atomic claims;
   split conjunctions; tag kind: efficacy / safety / association /
   mechanism / statistic / causal; check-worthiness filter; keep char

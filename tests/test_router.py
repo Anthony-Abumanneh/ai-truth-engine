@@ -152,3 +152,13 @@ def test_majority_can_be_wrong_on_multi_hop():
     by = {c.model: c.final_value for c in cands}
     assert by["graph"] == "Germany"                          # the path solver gets the full chain
     assert diversity(cands).majority_value != "Germany"      # majority vote would be wrong: step 6's judge must see this
+
+
+def test_one_sided_verdict_gets_a_second_look_only_when_search_can_broaden():
+    from truth_engine.schemas import ClaimVerdict, EvidenceItem, EvidenceStatus, Passage, Source, Stance
+    item = EvidenceItem(passage=Passage(id="p", source_id="s", text="x"), source=Source(id="s", title="s"),
+                        stance=Stance.CONTRADICTS, stance_score=0.9, relevance=0.9, found_by="supporting_search",
+                        lineage=0)
+    one_sided = ClaimVerdict(claim_id="c", status=EvidenceStatus.CONTRADICTED, confidence=0.8, contradicting=[item])
+    assert Router(live=True).should_escalate(one_sided, T.MEDIUM, T.HIGH) == "only one side of the evidence found"
+    assert Router(live=False).should_escalate(one_sided, T.LOW, T.HIGH) is None    # nothing broader offline

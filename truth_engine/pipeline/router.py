@@ -236,4 +236,16 @@ class Router:
             return "unverified"
         if verdict.confidence < threshold:
             return f"low confidence ({verdict.confidence:.2f})"
+        # A decisive verdict built from one side only (or one line of evidence) gets a
+        # second look when a higher tier would search more *sources* (live literature,
+        # follow-up studies): one meta-analysis can be contradicted by another (seen
+        # live: melatonin). Offline there is nothing broader to search, so no change.
+        if verdict.status.value != "unverified":
+            against = verdict.contradicting if verdict.status.value == "contradicted" else verdict.supporting
+            other = verdict.supporting if verdict.status.value == "contradicted" else verdict.contradicting
+            lineages = {i.lineage for i in against if i.lineage is not None}
+            cur, nxt = self.strategy(tier), self.strategy(self.next_useful_tier(tier, cap))
+            broader = set(nxt.sources) - set(cur.sources) or (nxt.follow_up_studies and not cur.follow_up_studies)
+            if broader and (len(lineages) <= 1 or not other):
+                return "only one side of the evidence found" if not other else "single line of evidence"
         return None
