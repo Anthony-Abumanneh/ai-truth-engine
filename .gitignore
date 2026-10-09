@@ -9,3 +9,4 @@ data/*.sqlite
 data/scifact/
 .DS_Store
 data/models/
+data/bench/

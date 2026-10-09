@@ -80,8 +80,8 @@ Not medical advice; the UI and README must say so.
 | 4 | Audit mode: claim extraction, verifier, science red flags | ✅ Done |
 | 4.5 | Local NLI model fused with rules | ✅ Done |
 | 5 | Analyzer, router (contextual bandit), compute budgets, independent solvers | ✅ Done |
-| 6 | Critic, judge, calibrated confidence, abstention | ⏳ **Next** |
-| 7 | Orchestrator, evidence tree, feedback loop, watched claims | Planned |
+| 6 | Critic, judge, calibrated confidence, abstention | ✅ Done |
+| 7 | Orchestrator, evidence tree, feedback loop, watched claims | ⏳ **Next** |
 | 8 | Benchmark (SciFact), baselines A–D, ablations, calibration report card | Planned |
 | 8.5 | Fine-tuning on A100: verifier, evidence reranker, study-design classifier, check-worthiness | Planned |
 | 9 | FastAPI server, CLI, audit-first web UI | Planned |
@@ -272,7 +272,7 @@ New package `truth_engine/science/`:
   exit alongside torch; less accurate). **Default model is now
   DeBERTa-v3-large** (`MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli`,
   870 MB; `TE_NLI_MODEL=base` for the 369 MB one). Batched inference ~40–55 ms
-  per pair on CPU or Apple GPU (`TE_NLI_DEVICE`, auto picks cuda/mps/cpu).
+  per pair on CPU or Apple GPU (`TE_DEVICE`; auto = cuda if present, else CPU; mps opt-in, it starved the 8 GB Mac).
   Re-tuned on train: NLI_DECIDE 0.4, NLI_DISMISS 0.99, OFFTOPIC_CONTRADICT
   0.5; all six hard signals kept. Dev: fused 0.766 acc / 0.771 macro-F1.
 - Settings chosen on SciFact **train**; dev numbers in README. SciFact data
@@ -310,7 +310,62 @@ New package `truth_engine/science/`:
 - Live: "Vitamin D prevents depression" now escalates medium → high and ends
   UNVERIFIED (conflicting) instead of SUPPORTED.
 
-### Steps 6–10 (intended design)
+### Step 6 — critic, confidence, judge (done)
+- Retrieval upgrade first (measured on 300 SciFact *train* claims,
+  `scripts/eval_retrieval_scifact.py`, recall@5 of a gold-evidence abstract):
+  hashing hybrid 0.797, BM25 0.847, MiniLM hybrid 0.907, bge-small vector
+  0.927, **bge-base vector 0.943 → default embedder** (`TE_EMBEDDINGS=st`,
+  `TE_EMBEDDINGS_MODEL`); BGE query prefix; embeddings cached on disk
+  (`data/cache/embeddings/`, keyed by model + texts). BM25 now uses an
+  inverted index; `DocumentStore.neighbors` is O(1).
+- Bugs found via SciFact traces: `population` defaulted to human, so
+  molecular claims got the animal penalty; now human only for people/body
+  words, countries, or efficacy/safety/association claims, else
+  "unspecified".
+- Verifier A/B end to end (200 train claims, `scripts/experiment_verifier.py`):
+  premise = sentence + neighbours (`PREMISE_CONTEXT=True`), NLI still gated
+  by the rules (`NLI_SCOPE="gated"`).
+- `bench/scifact.py`: SciFact corpus as a DocumentStore (44,705 sentences),
+  `run(split, components=..)` audits each claim as one claim and records
+  status, signals, correctness, evidence hit, critic change, tiers.
+  Records cached in `data/bench/*.jsonl` (gitignored).
+- `pipeline/critic.py`: targeted re-search against the leaning, re-verify;
+  stronger design on the losing side → UNVERIFIED (conflicting); claimed
+  number not backed by any "same value" support → PARTIALLY_SUPPORTED;
+  red flags → findings; causal alternatives.
+- `pipeline/confidence.py`: 9 spec signals → raw (hand-weighted logistic) →
+  `Calibrator` (logistic regression on signals + status one-hot, or Platt on
+  raw; chosen by 5-fold CV Brier) with per-status historical reliability;
+  ECE, Brier, reliability table; labels VERY LOW…VERY HIGH.
+- `pipeline/judge.py`: `decide()` abstains below the fitted threshold (shown
+  as UNVERIFIED with `leaning`), always abstains on conflict, caveats on
+  severe red flags / LOW–MODERATE labels. `judge_candidates()` for Ask mode
+  ranks by verification, not majority.
+- `audit(components=...)`: critic / calibration / abstention switchable
+  for ablations. `scripts/calibrate.py` fits on train, picks the threshold
+  maximizing train accuracy, saves `data/calibrator.json`, reports dev.
+- **Results (SciFact, open retrieval over the 5,183-abstract corpus; claims
+  audited as single claims; `data/bench/calibration_report.json`):**
+  train 809: accuracy 0.663, macro-F1 0.654. **dev 300: accuracy 0.613,
+  macro-F1 0.587** (step-8 baselines will put this in context).
+  Calibration: logistic beat Platt (CV Brier 0.205 vs 0.211). Dev ECE 0.251
+  → **0.054**, Brier 0.288 → 0.216.
+  Abstention: maximizing accuracy chose threshold 0 (main error is
+  under-calling: of 809 train claims, 197 supported/contradicted claims came
+  back NEI; decisive verdicts were 78% right). Threshold is therefore chosen
+  by precision of *stated* verdicts ≥ 0.8 on train → 0.6; dev stated-verdict
+  precision 0.73 at 38% coverage (dev is harder than train).
+  Critic ablation: dev accuracy 0.610 with vs 0.613 without, ECE 0.060 vs
+  0.054, 3× slower → **critic is opt-in** (`components={"critic", ...}`).
+  Red flags feed `unresolved_uncertainty` when the critic is off.
+- Tests: `TE_CALIBRATOR=0` (conftest) so a refit can't change test results;
+  `data/calibrator.json` is committed as the default fitted artifact.
+- Next accuracy levers (measured, not guessed): under-calling (recall) and
+  gold evidence used for only ~60% of claims despite 94% retrieval recall@5,
+  i.e. stance/aggregation, not search. That's what step 8.5's fine-tuned
+  verifier + reranker should target.
+
+### Steps 7–10 (intended design)
 - **4 Audit mode:** `pipeline/claims.py` (sentence → atomic claims;
   split conjunctions; tag kind: efficacy / safety / association /
   mechanism / statistic / causal; check-worthiness filter; keep char
@@ -415,6 +470,15 @@ data/graph.json      knowledge-graph seed with provenance per triple
 - PubMed and OpenAlex are reachable locally (verified in step 3). SciFact S3
   not yet checked (step 8).
 - Use the project venv: `.venv/bin/python -m pytest -q`.
+- **Hardware: the user's Mac is arm64 with 8 GB RAM** (disk was nearly full;
+  ~20 GB freed on 2026-10-06). Large NLI (~1.7 GB fp32) + bge-base fit on
+  CPU; running both on Apple's GPU (mps) pinned memory and swapped the
+  machine to a crawl, so `TE_DEVICE` auto = cuda else cpu. Long benchmark
+  runs (full SciFact, other datasets) and all training belong on the user's
+  **Colab A100 (100 compute units)**; keep local runs to subsets.
+- Tests run with `TE_NLI=0 TE_EMBEDDINGS=hashing` (conftest) for speed and
+  determinism; the production config (bge-base + large NLI) also passes:
+  `TE_EMBEDDINGS=st TE_NLI=1 .venv/bin/python -m pytest -q`.
 
 ## Known gaps / notes
 

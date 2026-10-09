@@ -27,6 +27,9 @@ from .claims import CERTAINTY, CHECK_WORTHY_THRESHOLD, extract_claims
 from ..schemas import BudgetTier
 from .analyzer import analyze
 from .router import LIVE_ONLY, Router, Strategy
+from .confidence import Calibrator, breakdown
+from .critic import Critic
+from .judge import decide
 from .verifier import Verifier, study_of
 
 
@@ -77,25 +80,70 @@ class _Run:
                 {f"llm:{self.llm_verifier[1].name}"} if key[1] else set())
         return self._verifiers[key]
 
-    def check(self, claim: Claim, st: Strategy) -> ClaimVerdict:
+    def check(self, claim: Claim, st: Strategy) -> tuple[ClaimVerdict, list]:
         eng = self.engine
         retrieved = eng.gather(claim, eng.plan(claim, list(st.sources)), k_support=st.k_support,
                                k_falsify=st.k_falsify, follow_up_studies=st.follow_up_studies)
-        self.known.update(eng.last_external_sources)
-        if LIVE_ONLY & set(st.sources):
-            self.known.update(eng.science.sources)
-        return self.verifier(st.nli, st.llm).verify(claim, retrieved)
+        self.sync()
+        return self.verifier(st.nli, st.llm).verify(claim, retrieved), retrieved
+
+    def sync(self) -> None:
+        """Make sources found by the last search visible to the verifiers and red-flag checks."""
+        self.known.update(self.engine.last_external_sources)
+        if self.engine._science is not None:
+            self.known.update(self.engine.science.sources)
+
+
+# Default step-6 components. The critic is opt-in: on SciFact dev it changed
+# neither accuracy (0.610 vs 0.613 without) nor calibration, at 3x the time.
+ALL_COMPONENTS = frozenset({"calibration", "abstention"})
+
+
+def check_claim(claim: Claim, run: _Run, router: Router, *, sources=None, budget=None, max_tier=None,
+                components=ALL_COMPONENTS, calibrator=None, analysis=None) -> tuple[ClaimVerdict, dict]:
+    """One claim through the whole pipeline: route + verify -> critic -> red flags
+    -> confidence -> judge. `components` switches step-6 parts off for ablations."""
+    analysis = analysis or analyze(claim.text)
+    if sources is not None:
+        base = router.strategy(BudgetTier.LOW)
+        st = Strategy(tuple(sources), base.nli, False, 5, 4, False, 0.0, 0.0)
+        v, retrieved = run.check(claim, st)
+        route = {"routing_source": "forced", "passes": [{"sources": list(sources), "status": v.status.value}]}
+    else:
+        v, retrieved, st, route = _routed(claim, analysis, run, router, budget, max_tier)
+    route["analysis"] = {"domain": analysis.domain.value, "type": analysis.question_type.value,
+                         "difficulty": analysis.difficulty, "risk": analysis.risk.value,
+                         "budget": analysis.compute_budget.value}
+    flags = red_flags(claim, v, run.known, run.engine.store.document_text)
+    critique = None
+    if "critic" in components:
+        v, critique = Critic().review(claim, v, retrieved, run.engine, run.verifier(st.nli, st.llm),
+                                      list(st.sources), flags)
+        run.sync()
+        flags = red_flags(claim, v, run.known, run.engine.store.document_text)
+    v.red_flags = flags
+    return _finish(claim, v, critique, analysis, components, calibrator), route
+
+
+def _finish(claim, v: ClaimVerdict, critique, analysis, components, calibrator) -> ClaimVerdict:
+    v.critique = critique
+    cal = calibrator if "calibration" in components else None
+    conf = breakdown(v, critique, analysis, cal)
+    threshold = (cal.threshold if cal and cal.threshold is not None else None) if "abstention" in components else 0.0
+    return decide(v, conf, threshold)
 
 
 def audit(text: str, *, live: bool = False, max_tier: BudgetTier | None = None, budget: BudgetTier | None = None,
           sources: list[str] | None = None, engine: EvidenceEngine | None = None, router: Router | None = None,
-          llm_extractor=None, llm_verifier=None) -> AuditReport:
+          llm_extractor=None, llm_verifier=None, components=ALL_COMPONENTS, calibrator=None) -> AuditReport:
     """Audit every check-worthy claim in `text`.
 
     live      allow PubMed / OpenAlex / web (network); otherwise corpus + graph only
     budget    force the starting tier (default: router decides per claim)
     max_tier  highest tier escalation may reach (default: high; maximum for high-risk claims)
     sources   force one fixed pass over these sources, no routing (reproducible runs)
+    components  step-6 parts to run (critic, calibration, abstention); remove some for ablations
+    calibrator  confidence calibrator (default: data/calibrator.json if fitted, else raw scores)
     """
     t0 = time.time()
     engine = engine or EvidenceEngine()
@@ -107,6 +155,7 @@ def audit(text: str, *, live: bool = False, max_tier: BudgetTier | None = None, 
     report = AuditReport(text=text, claims=claims,
                          skipped=[{"text": c.text, "span": c.span, "check_worthiness": c.check_worthiness}
                                   for c in all_claims if c.check_worthiness < CHECK_WORTHY_THRESHOLD])
+    calibrator = Calibrator.load() if calibrator is None else calibrator
     by_sentence: dict[tuple, ClaimVerdict] = {}
     deferred: list[Claim] = []
     all_sources: set[str] = set()
@@ -114,28 +163,19 @@ def audit(text: str, *, live: bool = False, max_tier: BudgetTier | None = None, 
         if _certainty_only(claim):
             deferred.append(claim)
             continue
-        analysis = analyze(claim.text)
-        if sources is not None:
-            st = router.strategy(BudgetTier.LOW)
-            st = Strategy(tuple(sources), st.nli, False, 5, 4, False, 0.0, 0.0)
-            v = run.check(claim, st)
-            route = {"routing_source": "forced", "passes": [{"sources": list(sources), "status": v.status.value}]}
-        else:
-            v, route = _routed(claim, analysis, run, router, budget, max_tier)
+        v, route = check_claim(claim, run, router, sources=sources, budget=budget, max_tier=max_tier,
+                               components=components, calibrator=calibrator)
         all_sources |= {src for p in route["passes"] for src in p["sources"]}
-        route["analysis"] = {"domain": analysis.domain.value, "type": analysis.question_type.value,
-                             "difficulty": analysis.difficulty, "risk": analysis.risk.value,
-                             "budget": analysis.compute_budget.value}
         report.routing[claim.id] = route
-        v.red_flags = red_flags(claim, v, run.known, engine.store.document_text)
         report.verdicts.append(v)
         by_sentence.setdefault(claim.span, v)
     for claim in deferred:
         effect = by_sentence.get(claim.span)
         if effect is None:              # nothing else in the sentence: verify the bare claim
-            effect = run.check(claim, router.strategy(BudgetTier.LOW))
-        v = _certainty_verdict(claim, effect)
+            effect = run.check(claim, router.strategy(BudgetTier.LOW))[0]
+        v = _certainty_verdict(claim, effect.model_copy(update={"status": effect.leaning or effect.status}))
         v.red_flags = red_flags(claim, v, run.known, engine.store.document_text)
+        v = _finish(claim, v, None, analyze(claim.text), components, calibrator)
         report.verdicts.append(v)
         report.routing[claim.id] = {"routing_source": "via effect claim", "passes": []}
     order = {c.id: i for i, c in enumerate(claims)}
@@ -150,7 +190,7 @@ def audit(text: str, *, live: bool = False, max_tier: BudgetTier | None = None, 
     return report
 
 
-def _routed(claim: Claim, analysis, run: _Run, router: Router, budget, max_tier) -> tuple[ClaimVerdict, dict]:
+def _routed(claim: Claim, analysis, run: _Run, router: Router, budget, max_tier):
     """Start at the routed tier; climb while the verdict is weak and the cap allows."""
     cap = router.cap(analysis, max_tier)
     if budget is not None:
@@ -161,7 +201,7 @@ def _routed(claim: Claim, analysis, run: _Run, router: Router, budget, max_tier)
     while True:
         st = router.strategy(tier)
         t = time.time()
-        v = run.check(claim, st)
+        v, retrieved = run.check(claim, st)
         passes.append({"tier": tier.value, "sources": list(st.sources), "nli": st.nli, "llm": st.llm,
                        "status": v.status.value, "confidence": v.confidence, "latency_s": round(time.time() - t, 3)})
         reason = router.should_escalate(v, tier, cap)
@@ -169,8 +209,8 @@ def _routed(claim: Claim, analysis, run: _Run, router: Router, budget, max_tier)
             break
         passes[-1]["escalated_because"] = reason
         tier = router.next_useful_tier(tier, cap)
-    return v, {"routing_source": source, "propensity": p, "start_tier": passes[0]["tier"], "final_tier": tier.value,
-               "cap": cap.value, "passes": passes}
+    return v, retrieved, st, {"routing_source": source, "propensity": p, "start_tier": passes[0]["tier"],
+                              "final_tier": tier.value, "cap": cap.value, "passes": passes}
 
 
 # --------------------------------------------------------------------------- CLI
@@ -190,7 +230,14 @@ def render(report: AuditReport) -> str:
                          f"{v.independent_support_count} independent.")
         for f in v.red_flags:
             lines.append(f"      ⚑ {f.kind.replace('_', ' ')}: {f.message}")
-        lines.append(f"      Provisional confidence: {v.confidence:.2f}")
+        cd = v.confidence_detail
+        if cd:
+            lines.append(f"      Confidence: {cd.label} ({cd.calibrated:.2f}); decision: {v.decision.value}"
+                         + (f"; leans {v.leaning.value.replace('_', ' ')}" if v.leaning else ""))
+        if v.critique:
+            for f in v.critique.findings:
+                if f.kind in ("counterevidence", "unsupported_number"):
+                    lines.append(f"      Critic: {f.description}")
         route = report.routing.get(v.claim_id, {})
         if route.get("passes") and route.get("routing_source") != "forced":
             steps = " -> ".join(p["tier"] + (f" ({p['escalated_because']})" if p.get("escalated_because") else "")

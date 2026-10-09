@@ -153,12 +153,24 @@ def science_kind(text: str) -> str:
     return "general"
 
 
+PEOPLE = re.compile(r"\b(?:people|persons?|humans?|adults?|patients?|men|women|children|kids|infants?|babies|"
+                    r"elderly|older adults|pregnan\w*|individuals|participants|population|you|your|consumers|"
+                    r"smokers|drinkers|athletes|students|brain|brains|heart|memory|sleep|skin|hair|body|"
+                    r"weight|lifespan|mood|focus|energy)\b|\bin (?:the )?(?:UK|US|USA|United \w+|[A-Z][a-z]+ia)\b",
+                    re.I)
+
+
 def population(text: str) -> str:
+    """Who the claim is about. Health-effect and safety claims ("X improves sleep")
+    are implicitly about people; molecular / mechanism claims ("ADAR1 binds
+    Dicer") are about no population, so animal or cell evidence isn't penalized."""
     if IN_VITRO_TEXT.search(text):
         return "in_vitro"
     if ANIMAL_TEXT.search(text):
         return "animal"
-    return "human"
+    if PEOPLE.search(text) or science_kind(text) in ("efficacy", "safety", "association"):
+        return "human"
+    return "unspecified"
 
 
 def check_worthiness(text: str) -> float:

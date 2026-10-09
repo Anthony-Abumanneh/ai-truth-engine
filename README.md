@@ -199,8 +199,8 @@ tests/
 | 4 | Audit mode: claim extraction, verifier, science red-flag checks | ✅ Done |
 | 4.5 | Local neural NLI verifier fused with the rules (offline; PyTorch or ONNX) | ✅ Done |
 | 5 | Analyzer, router (budget ladder + contextual bandit), escalation, Ask-mode solvers | ✅ Done |
-| 6 | Critic, judge, calibrated confidence, abstention | ⏳ Next |
-| 7 | Orchestrator, evidence tree, feedback loop, watched claims | Planned |
+| 6 | Critic, judge, calibrated confidence, abstention | ✅ Done |
+| 7 | Orchestrator, evidence tree, feedback loop, watched claims | ⏳ Next |
 | 8 | Benchmark, baselines, ablations, calibration report card | Planned |
 | 8.5 | Fine-tuned models (verifier, evidence reranker, study-design classifier) | Planned |
 | 9 | API, CLI and audit-first web interface | Planned |
@@ -259,7 +259,21 @@ chosen on the train split):
 | **Rules + large model (default)** | **0.77** | **0.77** | **0.80** |
 
 This measures one step (labeling a given evidence passage), not the whole
-system; step 8 benchmarks end to end. The server and web
+system.
+
+**End to end on SciFact dev** (300 claims; the engine searches all 5,183
+abstracts itself, then verifies, calibrates and judges):
+
+| Metric | Value |
+|---|---|
+| 3-way accuracy (supported / contradicted / not enough info) | 0.61 |
+| Macro-F1 | 0.59 |
+| Retrieval: gold abstract in top 5 (bge-base, train claims) | 0.94 |
+| Calibration error (ECE), before → after calibration | 0.25 → **0.05** |
+| Stated verdicts that are right (judge threshold 0.6) | 0.73, on 38% of claims |
+
+The main remaining error is caution: true or false claims labeled "not
+enough info". Baselines for comparison arrive in step 8. The server and web
 interface arrive in step 9.
 
 ## Background

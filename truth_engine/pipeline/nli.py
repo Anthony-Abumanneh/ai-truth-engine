@@ -11,7 +11,9 @@ step 4.5 and dropped: it lost real accuracy.)
     python -m truth_engine.pipeline.nli download [model]
 
 Env: TE_NLI=0 disables it; TE_NLI_MODEL picks a key of MODELS;
-TE_NLI_DEVICE=auto|cpu|mps|cuda (auto: Apple GPU or CUDA when present, else CPU).
+TE_DEVICE=auto|cpu|mps|cuda (auto: CUDA when present, else CPU. Apple's GPU
+("mps") is opt-in: it pins memory that can't be swapped, which starved an
+8 GB Mac running the large model, for only ~25% speedup).
 """
 from __future__ import annotations
 
@@ -103,15 +105,16 @@ class NLIModel:
         return [self._memo[p] for p in pairs]
 
 
+def device() -> str:
+    import torch
+    return _device(torch)
+
+
 def _device(torch) -> str:
-    choice = os.getenv("TE_NLI_DEVICE", "auto").lower()
+    choice = os.getenv("TE_DEVICE", "auto").lower()
     if choice != "auto":
         return choice
-    if torch.cuda.is_available():
-        return "cuda"
-    if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
-        return "mps"
-    return "cpu"
+    return "cuda" if torch.cuda.is_available() else "cpu"
 
 
 def load(key: str | None = None) -> NLIModel | None:

@@ -169,7 +169,7 @@ class Claim(BaseModel):
     sentence: str = ""                       # the original sentence it came from
     span: tuple[int, int] | None = None      # char offsets of that sentence in the input
     science_kind: str = "general"            # efficacy | safety | association | mechanism | statistic | causal | general
-    population: str = "human"                # who the claim is about: human | animal | in_vitro
+    population: str = "human"                # who the claim is about: human | animal | in_vitro | unspecified
     hedged: bool = False                     # "may", "could", "suggests"
     check_worthiness: float = 1.0
 
@@ -257,6 +257,11 @@ class ClaimVerdict(BaseModel):
     lineages: list[list[str]] = Field(default_factory=list)
     red_flags: list[RedFlag] = Field(default_factory=list)
     verifier_agreement: float | None = None  # rule-based vs LLM stance agreement, when an LLM ran
+    # step 6
+    critique: "CritiqueReport | None" = None
+    confidence_detail: "ConfidenceBreakdown | None" = None
+    decision: "Decision | None" = None
+    leaning: EvidenceStatus | None = None    # what the evidence leaned to when the judge abstained
 
 
 # --------------------------------------------------------------------------- #
@@ -444,4 +449,5 @@ class Trace(BaseModel):
 
 
 CandidateAnswer.model_rebuild()
+ClaimVerdict.model_rebuild()
 TreeNode.model_rebuild()

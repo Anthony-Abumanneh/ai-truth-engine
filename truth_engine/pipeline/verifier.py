@@ -226,7 +226,13 @@ def applicability(claim: Claim, src: Source) -> tuple[float, list[str]]:
 NLI_DECIDE = 0.4          # probability at which the model's label is taken
 OFFTOPIC_CONTRADICT = 0.5  # a low-overlap sentence needs this much to count against a claim...
 OFFTOPIC_WEIGHT = 0.6      # ...and then counts at reduced strength (often a different event)
-NLI_DISMISS = 0.99        # P(neutral) at which a soft rule signal is discarded
+NLI_DISMISS = 0.99
+# What the model reads. Chosen end to end on 200 SciFact train claims
+# (scripts/experiment_verifier.py): gated+context 0.680 acc / 0.667 macro-F1,
+# gated 0.660/0.650, all+context 0.650/0.646, all 0.640/0.639.
+NLI_SCOPE = "gated"       # "gated": skip sentences the rules call off-topic (unless a paraphrase
+                          # candidate); "all": read every retrieved sentence
+PREMISE_CONTEXT = True    # the sentence plus its neighbours (evidence often spans sentences)        # P(neutral) at which a soft rule signal is discarded
 
 
 def fuse(rule: RuleStance, probs: dict[str, float]) -> tuple[Stance, float, str]:
@@ -308,7 +314,7 @@ class Verifier:
         probs: dict[int, dict] = {}
         if self.nli is not None:
             idx = [i for i, (r, rs) in enumerate(zip(ordered, rules)) if r.found_by != "graph" and (
-                rs.signal != "offtopic" or self._paraphrase_candidate(claim, r))]
+                NLI_SCOPE == "all" or rs.signal != "offtopic" or self._paraphrase_candidate(claim, r))]
             pairs = [(self._premise(claim, ordered[i]), claim.text) for i in idx]
             probs = dict(zip(idx, self.nli.predict(pairs))) if pairs else {}
         items = []
@@ -342,14 +348,16 @@ class Verifier:
         return bool(subject) and mentions(subject, r.passage.text) and \
             coverage(content_tokens(claim.text), content_tokens(r.passage.text)) >= 0.25
 
-    @staticmethod
-    def _premise(claim: Claim, r: Retrieved) -> str:
-        """The sentence, prefixed by its title when the sentence never names the subject
-        ("The trial was publicly funded." -> which trial?)."""
+    def _premise(self, claim: Claim, r: Retrieved) -> str:
+        """The sentence (with its neighbours if PREMISE_CONTEXT), prefixed by its title
+        when it never names the subject ("The trial was publicly funded." -> which trial?)."""
+        text = r.passage.text
+        if PREMISE_CONTEXT and self.context_fn:
+            text = self.context_fn(r.passage.id) or text
         subject = claim.entities[0] if claim.entities else None
-        if subject and not mentions(subject, r.passage.text):
-            return f"{r.source.title}. {r.passage.text}"
-        return r.passage.text
+        if subject and not mentions(subject, text):
+            return f"{r.source.title}. {text}"
+        return text
 
     def verify(self, claim: Claim, retrieved: list[Retrieved]) -> ClaimVerdict:
         items = self.evidence_items(claim, retrieved)

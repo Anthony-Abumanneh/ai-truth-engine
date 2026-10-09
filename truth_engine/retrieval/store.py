@@ -64,6 +64,7 @@ class DocumentStore:
         self.vecs: np.ndarray | None = None
         self.embedder = get_embedder()
         self._dirty = True
+        self._pos: dict[str, int] = {}
         self._lock = threading.Lock()
 
     # ---------------------------------------------------------------- loading
@@ -114,8 +115,25 @@ class DocumentStore:
         with self._lock:
             texts = [self._index_text(r) for r in self.rows]
             self.bm25.fit(texts)
-            self.vecs = self.embedder.embed(texts) if texts else np.zeros((0, self.embedder.dim), dtype=np.float32)
+            self._pos = {r.passage.id: i for i, r in enumerate(self.rows)}
+            self.vecs = self._embed_cached(texts)
             self._dirty = False
+
+    def _embed_cached(self, texts: list[str]) -> np.ndarray:
+        """Neural embeddings are slow to compute: cache them on disk, keyed by model + texts."""
+        if not texts:
+            return np.zeros((0, self.embedder.dim), dtype=np.float32)
+        if self.embedder.name.startswith("hashing"):
+            return self.embedder.embed(texts)
+        import hashlib
+        key = hashlib.sha1((self.embedder.name + "\n" + "\n".join(texts)).encode()).hexdigest()[:20]
+        path = DATA_DIR / "cache" / "embeddings" / f"{key}.npy"
+        if path.exists():
+            return np.load(path)
+        vecs = self.embedder.embed(texts)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        np.save(path, vecs)
+        return vecs
 
     def _index_text(self, r: _Row) -> str:
         # title gives each sentence its subject (pronoun-only sentences become findable)
@@ -132,8 +150,8 @@ class DocumentStore:
                and (not exclude_types or self.sources[r.passage.source_id].source_type not in exclude_types)]
         if not idx:
             return []
-        bm = np.array(self.bm25.scores(query))[idx] if method in ("hybrid", "bm25") else None
-        dv = (self.vecs[idx] @ self.embedder.embed([query])[0]) if method in ("hybrid", "vector") else None
+        bm = self.bm25.scores(query)[idx] if method in ("hybrid", "bm25") else None
+        dv = (self.vecs[idx] @ self.embedder.embed_query(query)) if method in ("hybrid", "vector") else None
 
         if method == "bm25":
             fused = bm
@@ -161,11 +179,13 @@ class DocumentStore:
 
     def neighbors(self, passage_id: str, window: int = 1) -> list[Passage]:
         """Adjacent sentences from the same document, for context."""
-        for i, r in enumerate(self.rows):
-            if r.passage.id == passage_id:
-                lo, hi = max(0, i - window), min(len(self.rows), i + window + 1)
-                return [x.passage for x in self.rows[lo:hi] if x.passage.source_id == r.passage.source_id]
-        return []
+        self._ensure_index()
+        i = self._pos.get(passage_id)
+        if i is None:
+            return []
+        r = self.rows[i]
+        lo, hi = max(0, i - window), min(len(self.rows), i + window + 1)
+        return [x.passage for x in self.rows[lo:hi] if x.passage.source_id == r.passage.source_id]
 
     def document_text(self, source_id: str) -> str:
         return " ".join(r.passage.text for r in self.rows if r.passage.source_id == source_id)

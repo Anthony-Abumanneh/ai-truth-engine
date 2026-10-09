@@ -1,9 +1,13 @@
 """Embedding backends.
 
-Order of preference:
-  1. OpenAI embeddings      (if OPENAI_API_KEY and TE_EMBEDDINGS=openai)
-  2. sentence-transformers   (if installed and TE_EMBEDDINGS=st)
-  3. HashingEmbedder         (always available; deterministic, offline)
+TE_EMBEDDINGS selects:
+  st (default)  sentence-transformers model TE_EMBEDDINGS_MODEL (default
+                BAAI/bge-base-en-v1.5: best SciFact retrieval of those measured,
+                recall@5 0.943 vs 0.847 BM25 and 0.797 hashing hybrid; see
+                scripts/eval_retrieval_scifact.py). Falls back to hashing if
+                sentence-transformers is not installed.
+  openai        OpenAI embeddings (needs OPENAI_API_KEY)
+  hashing       HashingEmbedder (deterministic, offline, no model; used by tests)
 
 The hashing embedder is a signed feature-hashing model over stemmed unigrams,
 bigrams and character trigrams with sublinear TF weighting. It is not as good
@@ -28,6 +32,9 @@ class Embedder:
 
     def embed(self, texts: list[str]) -> np.ndarray:  # pragma: no cover
         raise NotImplementedError
+
+    def embed_query(self, query: str) -> np.ndarray:
+        return self.embed([query])[0]
 
 
 def _h(s: str) -> int:
@@ -85,26 +92,38 @@ class OpenAIEmbedder(Embedder):
         return arr / np.linalg.norm(arr, axis=1, keepdims=True)
 
 
-class STEmbedder(Embedder):
-    name = "sentence-transformers"
+# Some retrieval models expect an instruction in front of the *query* only.
+QUERY_PREFIX = {"BAAI/bge": "Represent this sentence for searching relevant passages: "}
 
+
+class STEmbedder(Embedder):
     def __init__(self, model: str = "all-MiniLM-L6-v2"):
         from sentence_transformers import SentenceTransformer  # type: ignore
-        self.m = SentenceTransformer(model)
-        self.dim = self.m.get_sentence_embedding_dimension()
+        from ..pipeline.nli import device
+        self.m = SentenceTransformer(model, device=device())
+        get_dim = getattr(self.m, "get_embedding_dimension", None) or self.m.get_sentence_embedding_dimension
+        self.dim = get_dim()
+        self.name = f"st:{model}"
+        self.prefix = next((p for k, p in QUERY_PREFIX.items() if model.startswith(k)), "")
 
     def embed(self, texts: list[str]) -> np.ndarray:
-        return np.asarray(self.m.encode(texts, normalize_embeddings=True), dtype=np.float32)
+        return np.asarray(self.m.encode(texts, normalize_embeddings=True, batch_size=64), dtype=np.float32)
+
+    def embed_query(self, query: str) -> np.ndarray:
+        return self.embed([self.prefix + query])[0]
+
+
+DEFAULT_ST_MODEL = "BAAI/bge-base-en-v1.5"
 
 
 @lru_cache(maxsize=1)
 def get_embedder() -> Embedder:
-    choice = os.getenv("TE_EMBEDDINGS", "hashing").lower()
+    choice = os.getenv("TE_EMBEDDINGS", "st").lower()
     try:
         if choice == "openai" and os.getenv("OPENAI_API_KEY"):
             return OpenAIEmbedder()
         if choice in ("st", "sentence-transformers"):
-            return STEmbedder()
+            return STEmbedder(os.getenv("TE_EMBEDDINGS_MODEL", DEFAULT_ST_MODEL))
     except Exception:
         pass
     return HashingEmbedder()
