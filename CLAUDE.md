@@ -86,6 +86,7 @@ Not medical advice; the UI and README must say so.
 | 8.5 | Fine-tuning on A100: verifier, evidence reranker, study-design classifier, check-worthiness | Planned |
 | 8.6 | Open-access full text (PubMed Central / Europe PMC) with reranked passage selection | Planned |
 | 9 | FastAPI server, CLI, audit-first web UI | Planned |
+| 9.5 | MCP server (LLM tool) + browser extension, on the same API | Planned |
 | 10 | Tests, end-to-end runs, final docs | Planned |
 | 11 | Deploy + MLOps: Docker, HF Spaces, CI eval gate, model versioning, monitoring | Planned |
 | 12 | Stretch: GRPO fine-tuning of a small LLM with the verifier as reward | Planned |
@@ -133,6 +134,11 @@ itself must keep running on CPU. Large datasets are welcome.
   ~200–400 sentences, so the reranker picks the top passages before NLI.
   Cache everything (data/cache). Measure: SciFact-Open / live claims with vs
   without full text. Paywalled papers stay abstract-only.
+- **Step 9.5 integrations** (user's choice: best use = a verifier *tool* for
+  LLMs): an MCP server exposing `audit(text)` / `ask(question)` / `watch` so
+  Claude and other agents can check their own drafts; a browser extension
+  (highlight text → claims coloured by verdict, evidence on hover) calling the
+  hosted API (step 11). Both are thin layers over the step-9 API.
 - **Step 11 deploy + MLOps**: Docker image (CPU, ~1.5 GB with torch),
   Hugging Face Spaces deployment, GitHub Actions running tests + the SciFact
   stance eval as a quality gate (fail on macro-F1 regression), model

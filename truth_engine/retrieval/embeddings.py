@@ -105,12 +105,17 @@ class STEmbedder(Embedder):
         self.dim = get_dim()
         self.name = f"st:{model}"
         self.prefix = next((p for k, p in QUERY_PREFIX.items() if model.startswith(k)), "")
+        self._qcache: dict[str, np.ndarray] = {}
 
     def embed(self, texts: list[str]) -> np.ndarray:
         return np.asarray(self.m.encode(texts, normalize_embeddings=True, batch_size=64), dtype=np.float32)
 
     def embed_query(self, query: str) -> np.ndarray:
-        return self.embed([self.prefix + query])[0]
+        if query not in self._qcache:                 # the same queries recur across tiers and claims
+            if len(self._qcache) > 5000:
+                self._qcache.clear()
+            self._qcache[query] = self.embed([self.prefix + query])[0]
+        return self._qcache[query]
 
 
 DEFAULT_ST_MODEL = "BAAI/bge-base-en-v1.5"

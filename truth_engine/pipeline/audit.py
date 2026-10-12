@@ -100,11 +100,14 @@ class _Run:
                 {f"llm:{self.llm_verifier[1].name}"} if key[1] else set())
         return self._verifiers[key]
 
-    def check(self, claim: Claim, st: Strategy) -> tuple[ClaimVerdict, list]:
+    def check(self, claim: Claim, st: Strategy, skip: set[str] | None = None,
+              seed: list | None = None) -> tuple[ClaimVerdict, list]:
+        """Search + verify. `skip`/`seed`: sources a lower tier already searched, and what
+        it found (escalation only searches what's new and verifies everything together)."""
         eng = self.engine
         plan = eng.plan(claim, list(st.sources), contradiction="falsification" in self.components)
-        retrieved = eng.gather(claim, plan, k_support=st.k_support,
-                               k_falsify=st.k_falsify, follow_up_studies=st.follow_up_studies)
+        retrieved = eng.gather(claim, plan, k_support=st.k_support, k_falsify=st.k_falsify,
+                               follow_up_studies=st.follow_up_studies, skip=skip, seed=seed)
         self.sync(retrieved)
         return self.verifier(st.nli, st.llm).verify(claim, retrieved), retrieved
 
@@ -124,6 +127,8 @@ def check_claim(claim: Claim, run: _Run, router: Router, *, sources=None, budget
     """One claim through the whole pipeline: route + verify -> critic -> red flags
     -> confidence -> judge. `components` switches step-6 parts off for ablations."""
     analysis = analysis or analyze(claim.text)
+    if calibrator is None and "calibration" in components:
+        calibrator = Calibrator.load()          # callers that skip audit() get the same default
     if sources is not None:
         base = router.strategy(BudgetTier.LOW)
         st = Strategy(tuple(sources), base.nli, False, 5, 4, False, 0.0, 0.0)
@@ -252,13 +257,18 @@ def _routed(claim: Claim, analysis, run: _Run, router: Router, budget, max_tier)
         tier, source, p = budget, "forced", 1.0
     else:
         tier, source, p = router.start_tier(analysis, cap)
-    passes = []
+    passes, searched, retrieved = [], set(), None
     while True:
         st = router.strategy(tier)
         t = time.time()
-        v, retrieved = run.check(claim, st)
+        # Escalation is incremental: sources already searched are not searched again
+        # (the local corpus at a higher depth is cheap, so it is re-searched).
+        skip = (searched - {"corpus", "graph"}) | ({"follow_up"} if passes and passes[-1].get("follow_up") else set())
+        v, retrieved = run.check(claim, st, skip=skip, seed=retrieved)
+        searched |= set(st.sources)
         passes.append({"tier": tier.value, "sources": list(st.sources), "nli": st.nli, "llm": st.llm,
-                       "status": v.status.value, "confidence": v.confidence, "latency_s": round(time.time() - t, 3)})
+                       "follow_up": st.follow_up_studies, "status": v.status.value, "confidence": v.confidence,
+                       "latency_s": round(time.time() - t, 3)})
         reason = router.should_escalate(v, tier, cap) if adaptive else None
         if not reason:
             break
@@ -312,7 +322,8 @@ def main(argv: list[str]) -> None:
     live = "--live" in argv
     cap = next((BudgetTier(a.split("=", 1)[1]) for a in argv if a.startswith("--max-tier=")), None)
     text = " ".join(a for a in argv if not a.startswith("--")) or sys.stdin.read()
-    print(render(audit(text, live=live, max_tier=cap)))
+    from ..config import settings
+    print(render(audit(text, live=live, max_tier=cap, workers=settings.max_parallel if live else 1)))
 
 
 if __name__ == "__main__":

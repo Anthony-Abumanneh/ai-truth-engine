@@ -33,7 +33,7 @@ MODELS = {
 DEFAULT_MODEL = "large"
 REQUIRED = ("config.json", "model.safetensors")
 OPTIONAL = ("tokenizer.json", "tokenizer_config.json", "special_tokens_map.json", "added_tokens.json", "spm.model")
-MAX_TOKENS = 384
+MAX_TOKENS = 256          # premise (sentence + neighbours) + claim fit comfortably
 
 
 def model_key() -> str:
@@ -95,6 +95,7 @@ class NLIModel:
     def predict(self, pairs: list[tuple[str, str]]) -> list[dict[str, float]]:
         """pairs = [(premise/evidence, hypothesis/claim)] -> [{"entailment": p, "neutral": p, "contradiction": p}]"""
         todo = [p for p in dict.fromkeys(pairs) if p not in self._memo]
+        todo.sort(key=lambda p: len(p[0]) + len(p[1]))      # similar lengths per batch: less padding
         with self._lock, self.torch.inference_mode():
             for i in range(0, len(todo), self.batch_size):
                 chunk = todo[i:i + self.batch_size]

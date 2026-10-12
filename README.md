@@ -207,6 +207,7 @@ tests/
 | 8.5 | Fine-tuned models (verifier, evidence reranker, study-design classifier) | Planned |
 | 8.6 | Open-access full text (PubMed Central / Europe PMC) | Planned |
 | 9 | API, CLI and audit-first web interface | Planned |
+| 9.5 | MCP server (verifier tool for LLMs) and browser extension | Planned |
 | 10 | Tests, end-to-end verification, docs | Planned |
 | 11 | Deployment and MLOps (Docker, CI quality gate, monitoring) | Planned |
 | 12 | Stretch: RL (GRPO) fine-tuning of a small LLM with the verifier as reward | Planned |

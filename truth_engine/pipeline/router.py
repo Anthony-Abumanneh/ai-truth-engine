@@ -188,6 +188,8 @@ class Router:
             self.log.append({"x": x.tolist(), "arm": arm, "p": p, "allowed": allowed})
             return arm, "learned", p
         rule = analysis.compute_budget
+        if self.live and "literature" in analysis.tools and tier_index(rule) < tier_index(BudgetTier.MEDIUM):
+            rule = BudgetTier.MEDIUM          # lower tiers can't reach the literature: don't spend a pass on them
         return (rule if tier_index(rule) <= tier_index(cap) else cap), "rules", 1.0
 
     def strategy(self, tier: BudgetTier) -> Strategy:

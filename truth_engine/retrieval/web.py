@@ -106,7 +106,7 @@ class WebSearch:
 
     def _tavily(self, q, k):
         r = self.client.post("https://api.tavily.com/search", json={
-            "api_key": settings.tavily_key, "query": q, "max_results": k, "search_depth": "advanced",
+            "api_key": settings.tavily_key, "query": q, "max_results": k, "search_depth": "basic",
             "include_answer": False})
         r.raise_for_status()
         return [(x.get("title"), x["url"], x.get("content", ""), x.get("published_date")) for x in r.json().get("results", [])]

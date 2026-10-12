@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 from ..schemas import Passage, Source
 from ..textutils import STOPWORDS, quantities, words
@@ -69,11 +70,12 @@ class ScienceSearch:
             return self._memo[memo_key]
         terms = query_terms(text)
         records: list[PaperRecord] = []
-        if terms and "pubmed" in use:
-            records += self._pubmed(terms, k, high_evidence)
-        if terms and "openalex" in use:
+        if terms:
             filt = "type:review" if high_evidence else "type:review|article"
-            records += self.openalex.search(" ".join(terms), k=k, filter=filt)
+            with ThreadPoolExecutor(max_workers=2) as pool:      # the two APIs in parallel
+                pm = pool.submit(self._pubmed, terms, k, high_evidence) if "pubmed" in use else None
+                oa = pool.submit(self.openalex.search, " ".join(terms), k=k, filter=filt) if "openalex" in use else None
+                records += (pm.result() if pm else []) + (oa.result() if oa else [])
         out = self._ingest(records)
         self._memo[memo_key] = out
         return out
@@ -154,13 +156,15 @@ class ScienceSearch:
         """Attach journal records (OpenAlex) and editorial notices (Crossref /
         Retraction Watch). Both are batched and cached; failures leave gaps."""
         need = [r for r in recs if r.venue is None]
-        venues = self.openalex.venues(ids=[r.venue_id for r in need if r.venue_id],
-                                      issns=[r.issn for r in need if r.issn and not r.venue_id])
+        with ThreadPoolExecutor(max_workers=2) as pool:          # journal records and Crossref notices in parallel
+            vf = pool.submit(self.openalex.venues, ids=[r.venue_id for r in need if r.venue_id],
+                             issns=[r.issn for r in need if r.issn and not r.venue_id])
+            nf = pool.submit(self.crossref.notices, [r.doi for r in recs if r.doi and not r.notices])
+            venues, notices = vf.result(), nf.result()
         by_id = {v.openalex_id: v for v in venues}
         by_issn = {i: v for v in venues for i in v.issns}
         for r in need:
             r.venue = by_id.get(r.venue_id) or by_issn.get(r.issn)
-        notices = self.crossref.notices([r.doi for r in recs if r.doi and not r.notices])
         for r in recs:
             if r.doi and r.doi.lower() in notices:
                 r.notices = notices[r.doi.lower()]

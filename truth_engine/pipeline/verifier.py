@@ -232,6 +232,7 @@ NLI_DISMISS = 0.99
 # gated 0.660/0.650, all+context 0.650/0.646, all 0.640/0.639.
 NLI_SCOPE = "gated"       # "gated": skip sentences the rules call off-topic (unless a paraphrase
                           # candidate); "all": read every retrieved sentence
+MAX_NLI_PAIRS = 24        # sentences the model reads per verification pass
 PREMISE_CONTEXT = True    # the sentence plus its neighbours (evidence often spans sentences)        # P(neutral) at which a soft rule signal is discarded
 
 
@@ -318,6 +319,7 @@ class Verifier:
         if self.nli is not None:
             idx = [i for i, (r, rs) in enumerate(zip(ordered, rules)) if r.found_by != "graph" and (
                 NLI_SCOPE == "all" or rs.signal != "offtopic" or self._paraphrase_candidate(claim, r))]
+            idx = idx[:MAX_NLI_PAIRS]              # most relevant first: bounds latency on long result lists
             pairs = [(self._premise(claim, ordered[i]), claim.text) for i in idx]
             probs = dict(zip(idx, self.nli.predict(pairs))) if pairs else {}
         items = []

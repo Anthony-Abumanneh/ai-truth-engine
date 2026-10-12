@@ -16,6 +16,7 @@ without the proposed cause (so alternative explanations surface).
 from __future__ import annotations
 
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from ..schemas import Claim, Passage, Source
@@ -145,12 +146,19 @@ class EvidenceEngine:
 
     # ------------------------------------------------------------ retrieval
     def gather(self, claim: Claim, plan: EvidencePlan, k_support: int = 5, k_falsify: int = 4,
-               min_relevance: float = 0.2, follow_up_studies: bool = False) -> list[Retrieved]:
+               min_relevance: float = 0.2, follow_up_studies: bool = False, skip: set[str] | None = None,
+               seed: list[Retrieved] | None = None) -> list[Retrieved]:
         """`follow_up_studies`: also read papers that cite the papers found (later
-        replications, failed replications, rebuttals), via OpenAlex."""
+        replications, failed replications, rebuttals), via OpenAlex.
+        `skip` / `seed`: incremental escalation - sources already searched by a lower
+        tier are not searched again, and their results (`seed`) are kept and merged.
+
+        Network calls (web, PubMed/OpenAlex support and falsification) run in
+        parallel; results are then scored in a fixed order, so output is deterministic."""
         out: dict[str, Retrieved] = {}
         external: dict[str, Source] = {}
         subject = claim_subject(claim)
+        skip = skip or set()
 
         def consider(p: Passage, src: Source, found_by: str, q: str):
             # Subject gate for outside sources (papers, web): a passage must be
@@ -172,49 +180,68 @@ class EvidenceEngine:
                 # the falsification search independently surfaced a passage with conflict signals
                 prev.found_by, prev.query = "contradiction_search", q
 
-        use_corpus = "corpus" in plan.sources or "internal" in plan.sources
-        use_web = "web" in plan.sources and self.web.available
-        lit = tuple(x for x in ("pubmed", "openalex") if x in plan.sources)
-        for q in plan.support_queries:
-            if use_corpus:
-                for p in self.store.search(q, k=k_support):
-                    consider(p, self.store.sources[p.source_id], "supporting_search", q)
+        use_corpus = ("corpus" in plan.sources or "internal" in plan.sources) and "corpus" not in skip
+        use_web = "web" in plan.sources and self.web.available and "web" not in skip
+        lit = tuple(x for x in ("pubmed", "openalex") if x in plan.sources and x not in skip)
+        # Web: two targeted queries (the claim, and the dispute-framed falsification
+        # query); each web call costs ~1-3 s and free tiers are ~1,000 calls/month.
+        web_support = plan.support_queries[:1]
+        web_falsify = [q for q in plan.falsify_queries if DISPUTE_WORDS in q][:1]
+
+        jobs = {}
+        with ThreadPoolExecutor(max_workers=6) as pool:
             if use_web:
-                for src, ps in self.web.search(q, k=4):
-                    external[src.id] = src
-                    for p in ps:
-                        consider(p, src, "supporting_search", q)
-        if lit:
-            # one literature query per claim: the APIs do their own term matching
-            for src, ps in self.science.search(claim.text, k=k_support, use=lit):
+                for q in web_support:
+                    jobs[("web_s", q)] = pool.submit(self.web.search, q, 4)
+                for q in web_falsify:
+                    jobs[("web_f", q)] = pool.submit(self.web.search, q, 3)
+            if lit:
+                jobs[("lit_s", "")] = pool.submit(self.science.search, claim.text, k=k_support, use=lit)
+                if plan.falsify_queries:
+                    jobs[("lit_f", "")] = pool.submit(self.science.search, claim.text, k=k_support, use=lit,
+                                                      high_evidence=True)
+            # local corpus search runs here meanwhile (fast, CPU)
+            corpus_s = {q: self.store.search(q, k=k_support) for q in plan.support_queries} if use_corpus else {}
+            corpus_f = {q: self.store.search(q, k=k_falsify * 2) for q in plan.falsify_queries} if use_corpus else {}
+            got = {k: f.result() for k, f in jobs.items()}
+
+        for q in plan.support_queries:
+            for p in corpus_s.get(q, []):
+                consider(p, self.store.sources[p.source_id], "supporting_search", q)
+            for src, ps in got.get(("web_s", q), []):
                 external[src.id] = src
                 for p in ps:
-                    consider(p, src, "supporting_search", claim.text)
+                    consider(p, src, "supporting_search", q)
+        for src, ps in got.get(("lit_s", ""), []):
+            # one literature query per claim: the APIs do their own term matching
+            external[src.id] = src
+            for p in ps:
+                consider(p, src, "supporting_search", claim.text)
         for q in plan.falsify_queries:
-            hits = []
-            if use_corpus:
-                hits += [(p, self.store.sources[p.source_id]) for p in self.store.search(q, k=k_falsify * 2)]
-            if use_web:
-                for src, ps in self.web.search(q, k=3):
-                    external[src.id] = src
-                    hits += [(p, src) for p in ps]
+            hits = [(p, self.store.sources[p.source_id]) for p in corpus_f.get(q, [])]
+            for src, ps in got.get(("web_f", q), []):
+                external[src.id] = src
+                hits += [(p, src) for p in ps]
             # rerank falsification hits by contradiction potential, keep the top few
             hits.sort(key=lambda h: -contradiction_potential(claim.text, h[0].text))
             for p, src in hits[:k_falsify]:
                 consider(p, src, "contradiction_search", q)
-        if lit and plan.falsify_queries:
+        if ("lit_f", "") in got:
             # Falsification in the literature: the strongest designs (trials, reviews)
             # on the same topic, whatever they concluded, reranked by conflict signals.
-            hits = [(p, src) for src, ps in self.science.search(claim.text, k=k_support, use=lit, high_evidence=True)
-                    for p in ps]
+            hits = [(p, src) for src, ps in got[("lit_f", "")] for p in ps]
             for src in {s.id: s for _, s in hits}.values():
                 external[src.id] = src
             hits.sort(key=lambda h: -contradiction_potential(claim.text, h[0].text))
             for p, src in hits[:k_falsify]:
                 consider(p, src, "contradiction_search", "high-evidence literature search")
-        if follow_up_studies and lit:
-            found = [r.source.id for r in out.values() if r.source.id in external][:3]
-            hits = [(p, src) for sid in found for src, ps in self.science.cited_by(sid, k=5) for p in ps]
+        if follow_up_studies and "follow_up" not in skip and (lit or any(
+                x in plan.sources for x in ("pubmed", "openalex"))):
+            prior = [r.source.id for r in (seed or []) if r.source.id.startswith(("pmid:", "openalex:", "doi:"))]
+            found = list(dict.fromkeys(prior + [r.source.id for r in out.values() if r.source.id in external]))[:3]
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                lists = list(pool.map(lambda sid: self.science.cited_by(sid, k=5), found))
+            hits = [(p, src) for res in lists for src, ps in res for p in ps]
             for src in {s.id: s for _, s in hits}.values():
                 external[src.id] = src
             hits.sort(key=lambda h: -contradiction_potential(claim.text, h[0].text))
@@ -232,4 +259,8 @@ class EvidenceEngine:
                 out[pid] = Retrieved(p, src, "graph", claim.text, min(1.0, 0.5 + gp.score / 2), 0.0)
         res = sorted(out.values(), key=lambda r: (-(r.relevance + r.contradiction_potential), r.passage.id))
         self.last_external_sources = external
-        return res[: k_support + k_falsify + 2]
+        res = res[: k_support + k_falsify + 2]
+        if seed:
+            have = {r.passage.id for r in res}
+            res = [r for r in seed if r.passage.id not in have] + res
+        return res
