@@ -64,3 +64,12 @@ def test_multi_hop_graph_answer():
 def test_graph_prefers_high_quality_edges():
     best = get_graph().multi_hop("What is the capital of Australia?")[0]
     assert best.answer == "Canberra"
+
+
+def test_web_source_grading():
+    from truth_engine.retrieval.web import _authority
+    assert _authority("https://www.sciencedirect.com/science/article/x")[1] == "paper"
+    assert _authority("https://pmc.ncbi.nlm.nih.gov/articles/PMC1/")[1] == "paper"
+    assert _authority("https://www.bioabsorbnutraceuticals.com/blog")[1] == "marketing"
+    assert _authority("https://www.reddit.com/r/sleep")[1] == "forum"
+    assert _authority("https://www.cdc.gov/sleep")[1] == "government"

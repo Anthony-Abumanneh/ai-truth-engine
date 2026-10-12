@@ -25,8 +25,23 @@ HIGH_AUTHORITY = {
 LOW_AUTHORITY = ("reddit.com", "quora.com", "medium.com", "blogspot.", "wordpress.", "pinterest.", "tiktok.", "facebook.")
 
 
+# Journal publishers and full-text archives: research articles (graded as papers)
+PUBLISHERS = {
+    "ncbi.nlm.nih.gov": 0.85, "pubmed.ncbi": 0.85, "europepmc.org": 0.85, "sciencedirect.com": 0.8,
+    "springer.com": 0.8, "link.springer": 0.8, "wiley.com": 0.8, "tandfonline.com": 0.78, "frontiersin.org": 0.75,
+    "mdpi.com": 0.7, "plos.org": 0.8, "jamanetwork.com": 0.88, "academic.oup.com": 0.82, "cell.com": 0.86,
+    "ahajournals.org": 0.85, "journals.lww.com": 0.8, "karger.com": 0.75, "sagepub.com": 0.75, "biomedcentral.com": 0.78,
+    "annals.org": 0.86, "pnas.org": 0.86, "elifesciences.org": 0.82, "medrxiv.org": 0.55, "biorxiv.org": 0.55,
+}
+COMMERCIAL = re.compile(r"nutra|supplement|vitamin|shop|store|buy|wellness|health(?:y)?(?:store|products)|"
+                        r"naturals?|labs?\.(?:com|co)|\.shop$|\.store$", re.I)
+
+
 def _authority(url: str) -> tuple[float, str]:
     host = urlparse(url).netloc.lower()
+    for k, v in PUBLISHERS.items():
+        if k in host:
+            return v, "paper"
     for k, v in HIGH_AUTHORITY.items():
         if host.endswith(k) or k in host:
             stype = "paper" if k in ("nature.com", "science.org", "thelancet.com", "nejm.org", "bmj.com", "arxiv.org") else \
@@ -35,6 +50,8 @@ def _authority(url: str) -> tuple[float, str]:
             return v, stype
     if any(x in host for x in LOW_AUTHORITY):
         return 0.2, "forum"
+    if COMMERCIAL.search(host):
+        return 0.1, "marketing"         # sellers of the thing being claimed about
     return 0.45, "web"
 
 
@@ -42,6 +59,7 @@ class WebSearch:
     def __init__(self):
         self.client = httpx.Client(timeout=25)
         self.cache: dict[str, list[tuple[Source, list[Passage]]]] = {}
+        self.errors: list[str] = []
 
     @property
     def available(self) -> bool:
@@ -52,15 +70,8 @@ class WebSearch:
             return []
         if query in self.cache:
             return self.cache[query]
-        try:
-            if settings.tavily_key:
-                raw = self._tavily(query, k)
-            elif settings.brave_key:
-                raw = self._brave(query, k)
-            else:
-                raw = self._serper(query, k)
-        except Exception:
-            raw = []
+        provider = "tavily" if settings.tavily_key else "brave" if settings.brave_key else "serper"
+        raw = self._cached_raw(provider, query, k)
         out = []
         for title, url, text, published in raw:
             sid = "web-" + hashlib.sha1(url.encode()).hexdigest()[:10]
@@ -74,6 +85,24 @@ class WebSearch:
             out.append((src, passages))
         self.cache[query] = out
         return out
+
+    def _cached_raw(self, provider: str, query: str, k: int) -> list:
+        """Search results are cached on disk (data/cache/web): free tiers allow ~1,000
+        searches a month, and cached runs are reproducible offline."""
+        import json
+
+        from ..science.cache import JsonCache
+        disk = JsonCache()
+        hit = disk.get("web", provider, {"q": query, "k": k})
+        if hit is not None:
+            return [tuple(x) for x in json.loads(hit)]
+        try:
+            raw = getattr(self, f"_{provider}")(query, k)
+        except Exception as e:
+            self.errors.append(f"web ({provider}): {type(e).__name__}: {str(e)[:120]}")
+            return []
+        disk.put("web", provider, {"q": query, "k": k}, json.dumps(raw))
+        return raw
 
     def _tavily(self, q, k):
         r = self.client.post("https://api.tavily.com/search", json={
