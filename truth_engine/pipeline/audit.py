@@ -33,6 +33,21 @@ from .critic import Critic
 from .judge import decide
 from .verifier import Verifier, study_of
 
+# Pipeline components, each removable for ablation studies (step 8):
+#   nli            local NLI model (else word-level rules only)
+#   falsification  separate searches for counterevidence
+#   independence   citation-graph lineages (else every source counts separately)
+#   source_quality study-design / journal / applicability weights (else all equal)
+#   adaptive       routing + escalation (else one fixed "low" pass)
+#   calibration    fitted confidence (else raw score)
+#   abstention     judge withholds low-confidence verdicts
+#   critic         adversarial re-search (opt-in: on SciFact dev it changed neither
+#                  accuracy, 0.610 vs 0.613 without, nor calibration, at 3x the time)
+DEFAULT_COMPONENTS = frozenset({"nli", "falsification", "independence", "source_quality", "adaptive",
+                                "calibration", "abstention"})
+ALL_COMPONENTS = DEFAULT_COMPONENTS
+RAW_COMPONENTS = DEFAULT_COMPONENTS - {"calibration", "abstention"}     # for recording uncalibrated runs
+
 
 
 def _certainty_only(claim: Claim) -> bool:
@@ -64,8 +79,9 @@ class _Run:
     """Per-audit state: the evidence engine, every source seen, and one verifier
     per (NLI, LLM) combination, built on first use."""
 
-    def __init__(self, engine: EvidenceEngine, llm_verifier):
+    def __init__(self, engine: EvidenceEngine, llm_verifier, components=DEFAULT_COMPONENTS):
         self.engine = engine
+        self.components = frozenset(components)
         self.known = dict(engine.store.sources)
         self.llm_verifier = llm_verifier
         self._verifiers: dict[tuple[bool, bool], Verifier] = {}
@@ -74,8 +90,11 @@ class _Run:
     def verifier(self, nli: bool, llm: bool) -> Verifier:
         key = (nli, llm and self.llm_verifier is not None)
         if key not in self._verifiers:
-            v = Verifier(self.known, llm=self.llm_verifier if key[1] else None, nli="auto" if nli else None,
-                         context_fn=lambda pid: " ".join(p.text for p in self.engine.store.neighbors(pid)))
+            v = Verifier(self.known, llm=self.llm_verifier if key[1] else None,
+                         nli="auto" if nli and "nli" in self.components else None,
+                         context_fn=lambda pid: " ".join(p.text for p in self.engine.store.neighbors(pid)),
+                         independence="independence" in self.components,
+                         quality="source_quality" in self.components)
             self._verifiers[key] = v
             self.used |= {"rules"} | ({f"nli:{v.nli.name}"} if v.nli else set()) | (
                 {f"llm:{self.llm_verifier[1].name}"} if key[1] else set())
@@ -83,7 +102,8 @@ class _Run:
 
     def check(self, claim: Claim, st: Strategy) -> tuple[ClaimVerdict, list]:
         eng = self.engine
-        retrieved = eng.gather(claim, eng.plan(claim, list(st.sources)), k_support=st.k_support,
+        plan = eng.plan(claim, list(st.sources), contradiction="falsification" in self.components)
+        retrieved = eng.gather(claim, plan, k_support=st.k_support,
                                k_falsify=st.k_falsify, follow_up_studies=st.follow_up_studies)
         self.sync(retrieved)
         return self.verifier(st.nli, st.llm).verify(claim, retrieved), retrieved
@@ -96,9 +116,7 @@ class _Run:
             self.known.update(self.engine.science.snapshot())
 
 
-# Default step-6 components. The critic is opt-in: on SciFact dev it changed
-# neither accuracy (0.610 vs 0.613 without) nor calibration, at 3x the time.
-ALL_COMPONENTS = frozenset({"calibration", "abstention"})
+
 
 
 def check_claim(claim: Claim, run: _Run, router: Router, *, sources=None, budget=None, max_tier=None,
@@ -173,7 +191,7 @@ def audit_claims(claims: list[Claim], *, text: str = "", live: bool = False, max
     """Verify already-extracted claims (also used by Ask mode for candidate statements)."""
     t0 = time.time()
     engine = engine or EvidenceEngine()
-    run = _Run(engine, llm_verifier)
+    run = _Run(engine, llm_verifier, components)
     router = router or Router(live=live, has_web=engine.web.available, has_llm=llm_verifier is not None,
                               has_nli=run.verifier(True, False).nli is not None)
     report = AuditReport(text=text or " ".join(c.text for c in claims), claims=claims)
@@ -227,7 +245,10 @@ def audit_claims(claims: list[Claim], *, text: str = "", live: bool = False, max
 def _routed(claim: Claim, analysis, run: _Run, router: Router, budget, max_tier):
     """Start at the routed tier; climb while the verdict is weak and the cap allows."""
     cap = router.cap(analysis, max_tier)
-    if budget is not None:
+    adaptive = "adaptive" in run.components
+    if not adaptive:
+        tier, source, p = BudgetTier.LOW, "fixed (adaptive off)", 1.0
+    elif budget is not None:
         tier, source, p = budget, "forced", 1.0
     else:
         tier, source, p = router.start_tier(analysis, cap)
@@ -238,7 +259,7 @@ def _routed(claim: Claim, analysis, run: _Run, router: Router, budget, max_tier)
         v, retrieved = run.check(claim, st)
         passes.append({"tier": tier.value, "sources": list(st.sources), "nli": st.nli, "llm": st.llm,
                        "status": v.status.value, "confidence": v.confidence, "latency_s": round(time.time() - t, 3)})
-        reason = router.should_escalate(v, tier, cap)
+        reason = router.should_escalate(v, tier, cap) if adaptive else None
         if not reason:
             break
         passes[-1]["escalated_because"] = reason

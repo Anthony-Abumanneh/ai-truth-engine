@@ -14,6 +14,11 @@ from ..config import settings
 from .base import LLMProvider, ModelSpec
 from .http_providers import AnthropicProvider, OfflineProvider, OpenAIChatProvider
 
+FREE_ENDPOINTS = {
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "groq": "https://api.groq.com/openai/v1",
+    "openrouter": "https://openrouter.ai/api/v1",
+}
 ALL_ROLES = frozenset({"solver", "verifier", "critic", "judge", "analyzer", "extractor", "synthesizer"})
 
 
@@ -85,6 +90,18 @@ def _llm_models() -> list[ModelSpec]:
                       frozenset({"general", "geography", "history"}),
                       *_price("gpt-fast", (0.4, 1.6)), roles=ALL_ROLES, description=f"OpenAI {s.openai_fast}"),
         ]
+    # Free tiers: real calls, $0 actual cost (prices left at 0; rate limits apply)
+    for prov, key, models, family in (("gemini", s.gemini_key, s.gemini_models, "google"),
+                                      ("groq", s.groq_key, s.groq_models, None),
+                                      ("openrouter", s.openrouter_key, s.openrouter_models, None)):
+        if not key:
+            continue
+        for m in models:
+            fam = family or m.lower().split("/")[-1].split("-")[0]       # llama / qwen / gemma ...
+            big = any(x in m.lower() for x in ("70b", "72b", "pro", "405b", "235b", "120b"))
+            out.append(ModelSpec(f"{prov}:{m}", prov, m, "large" if big else "medium", fam,
+                                 frozenset({"general", "science", "medicine", "history", "geography", "technology"}),
+                                 0.0, 0.0, roles=ALL_ROLES, description=f"{prov} free tier: {m}"))
     if s.compat_base_url and s.compat_models:
         for m in s.compat_models:
             lower = m.lower()
@@ -114,6 +131,11 @@ class Registry:
             self.providers["openai"] = OpenAIChatProvider(settings.openai_key)
         if settings.compat_base_url and not settings.force_offline:
             self.providers["compat"] = OpenAIChatProvider(settings.compat_key, settings.compat_base_url)
+        for name, key, url in (("gemini", settings.gemini_key, FREE_ENDPOINTS["gemini"]),
+                               ("groq", settings.groq_key, FREE_ENDPOINTS["groq"]),
+                               ("openrouter", settings.openrouter_key, FREE_ENDPOINTS["openrouter"])):
+            if key and not settings.force_offline:
+                self.providers[name] = OpenAIChatProvider(key, url)
 
     def get(self, name: str) -> ModelSpec:
         return self.models[name]

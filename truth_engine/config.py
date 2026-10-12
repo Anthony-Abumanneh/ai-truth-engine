@@ -7,6 +7,7 @@ Set any of these to enable real models (nothing else needs to change):
     OPENAI_COMPAT_BASE_URL   any OpenAI-compatible server (vLLM, Together,
     OPENAI_COMPAT_API_KEY    DashScope/Qwen, Ollama, LM Studio ...)
     OPENAI_COMPAT_MODELS     comma list, e.g. "qwen2.5-math-72b,qwen2.5-72b"
+    GEMINI_API_KEY / GROQ_API_KEY / OPENROUTER_API_KEY   free-tier LLMs
     TAVILY_API_KEY / BRAVE_API_KEY / SERPER_API_KEY   live web retrieval
     NCBI_API_KEY             optional: PubMed at 10 req/s instead of 3
     OPENALEX_EMAIL           optional: OpenAlex "polite pool"
@@ -52,6 +53,17 @@ class Settings:
     compat_base_url: str = field(default_factory=lambda: _env("OPENAI_COMPAT_BASE_URL"))
     compat_key: str = field(default_factory=lambda: _env("OPENAI_COMPAT_API_KEY", "none"))
     compat_models: list[str] = field(default_factory=lambda: [m.strip() for m in _env("OPENAI_COMPAT_MODELS").split(",") if m.strip()])
+    # Free-tier providers (OpenAI-compatible endpoints). Model lists are comma-separated
+    # and overridable because free models change; check the provider's /models list.
+    gemini_key: str = field(default_factory=lambda: _env("GEMINI_API_KEY"))
+    gemini_models: list[str] = field(default_factory=lambda: [m.strip() for m in _env(
+        "TE_GEMINI_MODELS", "gemini-2.5-flash").split(",") if m.strip()])
+    groq_key: str = field(default_factory=lambda: _env("GROQ_API_KEY"))
+    groq_models: list[str] = field(default_factory=lambda: [m.strip() for m in _env(
+        "TE_GROQ_MODELS", "llama-3.3-70b-versatile").split(",") if m.strip()])
+    openrouter_key: str = field(default_factory=lambda: _env("OPENROUTER_API_KEY"))
+    openrouter_models: list[str] = field(default_factory=lambda: [m.strip() for m in _env(
+        "TE_OPENROUTER_MODELS").split(",") if m.strip()])
     tavily_key: str = field(default_factory=lambda: _env("TAVILY_API_KEY"))
     brave_key: str = field(default_factory=lambda: _env("BRAVE_API_KEY"))
     serper_key: str = field(default_factory=lambda: _env("SERPER_API_KEY"))

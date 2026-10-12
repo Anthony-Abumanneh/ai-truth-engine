@@ -18,6 +18,10 @@ from ..schemas import (CandidateAnswer, ClaimVerdict, ConfidenceBreakdown, Decis
 
 DEFAULT_THRESHOLD = 0.5
 CAVEAT_SEVERITY = 0.5
+# Evidence that cannot show the claimed effect in people, when it is *all* the support:
+# the claim as stated is not verified (the association / mouse / cell result is).
+GENERALIZATION_FLAGS = {"correlation_as_causation", "animal_to_human", "in_vitro_to_human"}
+GENERALIZATION_SEVERITY = 0.7
 
 
 def decide(verdict: ClaimVerdict, conf: ConfidenceBreakdown, threshold: float | None = None) -> ClaimVerdict:
@@ -27,6 +31,12 @@ def decide(verdict: ClaimVerdict, conf: ConfidenceBreakdown, threshold: float | 
     v.confidence_detail, v.confidence = conf, conf.calibrated
     if v.status == EvidenceStatus.UNVERIFIED or v.conflicting:
         v.decision = Decision.ABSTAIN
+        return v
+    blocking = [f for f in v.red_flags if f.kind in GENERALIZATION_FLAGS and f.severity >= GENERALIZATION_SEVERITY]
+    if blocking and v.status in (EvidenceStatus.SUPPORTED, EvidenceStatus.PARTIALLY_SUPPORTED,
+                                 EvidenceStatus.INFERRED):
+        v.decision, v.leaning, v.status = Decision.ABSTAIN, v.status, EvidenceStatus.UNVERIFIED
+        v.rationale = f"Not shown as claimed: {blocking[0].message} " + v.rationale
         return v
     if conf.calibrated < thr:
         v.decision, v.leaning, v.status = Decision.ABSTAIN, v.status, EvidenceStatus.UNVERIFIED

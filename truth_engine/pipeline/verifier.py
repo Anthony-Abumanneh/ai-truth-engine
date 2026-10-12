@@ -282,8 +282,11 @@ Return JSON: {"stance": "...", "reason": "<one short sentence>"}"""
 
 class Verifier:
     def __init__(self, sources: dict[str, Source] | None = None, llm=None, max_llm_items: int = 8,
-                 context_fn=None, nli="auto"):
+                 context_fn=None, nli="auto", independence: bool = True, quality: bool = True):
+        """`independence` / `quality` exist for ablations: without them every source counts
+        as its own line of evidence, and every source weighs the same."""
         self.sources = sources if sources is not None else {}
+        self.independence, self.quality = independence, quality
         self.context_fn = context_fn    # passage_id -> neighbouring text (DocumentStore.neighbors)
         if nli == "auto":
             from .nli import get_nli
@@ -338,7 +341,8 @@ class Verifier:
             items.append(EvidenceItem(
                 passage=r.passage, source=r.source, stance=st, stance_score=strength, relevance=r.relevance,
                 found_by=r.found_by, rationale="; ".join([why] + app_why), applicability=round(app, 3),
-                weight=round(q * app * strength, 3), llm_stance=llm_st, rule_stance=rs.stance, nli=probs.get(i)))
+                weight=round((q * app if self.quality else 1.0) * strength, 3), llm_stance=llm_st,
+                rule_stance=rs.stance, nli=probs.get(i)))
         return items
 
     @staticmethod
@@ -363,8 +367,9 @@ class Verifier:
         items = self.evidence_items(claim, retrieved)
         for it in items:
             self.sources.setdefault(it.source.id, it.source)
-        graph = CitationGraph(self.sources)
-        self._cap_derived(claim, items, graph)
+        graph = CitationGraph(self.sources if self.independence else {})
+        if self.independence:
+            self._cap_derived(claim, items, graph)
         # A source that explicitly contradicts the claim doesn't also support it
         # (e.g. an encyclopedia mentioning the prize *and* saying it wasn't for relativity).
         # ("disputed" is not a denial: a source can say "usually X, but disputed")

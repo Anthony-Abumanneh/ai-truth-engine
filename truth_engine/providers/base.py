@@ -24,7 +24,7 @@ class ModelSpec:
     """A routable model. `family` is used to measure correlated-error risk:
     two models from the same family are assumed less independent."""
     name: str
-    provider: Literal["anthropic", "openai", "compat", "offline"]
+    provider: Literal["anthropic", "openai", "compat", "gemini", "groq", "openrouter", "offline"]
     api_model: str
     tier: Literal["small", "medium", "large"]
     family: str

@@ -23,9 +23,12 @@ from ..pipeline.claims import CERTAINTY
 
 OBSERVATIONAL = {"cohort", "case_control", "cross_sectional"}
 STRONG = {"rct", "meta_analysis", "systematic_review"}
+# A *relative* change in risk needs a magnitude ("in half", "50%", "3-fold"); "lower risk" alone is not one.
+_MAGNITUDE = r"(?:in half|halve[sd]?|by \d+(?:\.\d+)?\s*%|\d+(?:\.\d+)?\s*%|\d+-fold|two-fold|twice|double[sd]?|triple[sd]?)"
 RELATIVE_RISK = re.compile(
-    r"\b(?:cuts?|reduces?|lowers?|halves?|slashes?|increases?|raises?|doubles?|triples?)\b[^.]{0,40}\brisk\b"
-    r"|\brisk\b[^.]{0,30}\b(?:in half|halved|by \d+(?:\.\d+)?\s*%|\d+-fold|two-fold|twice)"
+    rf"\b(?:cuts?|reduces?|lowers?|halves?|slashes?|increases?|raises?|doubles?|triples?)\b[^.]{{0,40}}\brisk\b[^.]{{0,20}}{_MAGNITUDE}"
+    rf"|\b(?:halves?|doubles?|triples?)\b[^.]{{0,30}}\brisk\b"
+    rf"|\brisk\b[^.]{{0,30}}{_MAGNITUDE}"
     r"|\d+(?:\.\d+)?\s*%\s*(?:lower|higher|reduced|increased|less|greater)\s+(?:risk|odds|chance)", re.I)
 ABSOLUTE = re.compile(r"\babsolute risk\b|percentage points?|\bNNT\b|number needed to treat|\bin \d[\d,]* people\b|"
                       r"\b\d+ (?:in|out of) \d[\d,]*\b|from \d+(?:\.\d+)?\s*% to \d+(?:\.\d+)?\s*%", re.I)

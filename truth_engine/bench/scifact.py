@@ -56,7 +56,7 @@ def run(split: str, *, components=ALL_COMPONENTS, calibrator=None, limit: int | 
     """Audit each claim (as one claim, no splitting) and record the outcome."""
     claims = load_claims(split)[:limit]
     engine = engine or build_engine()
-    run_ = _Run(engine, None)
+    run_ = _Run(engine, None, components)
     router = Router(live=False, has_nli=run_.verifier(True, False).nli is not None)
     out, t0 = [], time.time()
     for n, c in enumerate(claims, 1):

@@ -4,7 +4,7 @@ import random
 import numpy as np
 import pytest
 
-from truth_engine.pipeline.audit import audit
+from truth_engine.pipeline.audit import DEFAULT_COMPONENTS, RAW_COMPONENTS, audit
 from truth_engine.pipeline.confidence import (Calibrator, brier, cross_val_brier, ece, history_from, label,
                                               raw_score, reliability, signals)
 from truth_engine.pipeline.judge import decide, judge_candidates
@@ -37,8 +37,16 @@ def test_judge_abstains_below_threshold_and_keeps_leaning():
 
 def test_judge_adds_caveats_for_serious_red_flags():
     v = ClaimVerdict(claim_id="c", status=S.SUPPORTED, confidence=0.0,
-                     red_flags=[RedFlag(kind="animal_to_human", severity=0.8, message="mice")])
+                     red_flags=[RedFlag(kind="industry_funded", severity=0.5, message="funded by the maker")])
     assert decide(v, _conf(0.95), threshold=0.5).decision == Decision.ANSWER_WITH_CAVEATS
+
+
+def test_mouse_only_support_is_not_stated_as_true():
+    v = ClaimVerdict(claim_id="c", status=S.SUPPORTED, confidence=0.0, rationale="r",
+                     red_flags=[RedFlag(kind="animal_to_human", severity=0.8, message="Shown in mice, not people.")])
+    out = decide(v, _conf(0.95), threshold=0.5)
+    assert out.decision == Decision.ABSTAIN and out.leaning == S.SUPPORTED
+    assert out.rationale.startswith("Not shown as claimed")
 
 
 def test_conflicting_evidence_always_abstains():
@@ -93,7 +101,7 @@ def test_calibrator_learns_and_beats_raw_on_miscalibrated_signals(tmp_path):
 # ------------------------------------------------------------------ critic + full pipeline
 def test_critic_runs_and_signals_are_recorded(engine):
     rep = audit("Veridamine improves sleep quality by 18%.", engine=engine,
-                components={"critic", "calibration", "abstention"})      # critic is opt-in
+                components=DEFAULT_COMPONENTS | {"critic"})      # critic is opt-in
     v = rep.verdicts[0]
     assert v.critique is not None and v.confidence_detail is not None and v.decision is not None
     assert v.status == S.CONTRADICTED and v.confidence_detail.contradiction > 0
@@ -125,9 +133,10 @@ def test_critic_is_off_by_default(engine):
 
 
 def test_components_can_be_switched_off(engine):
-    rep = audit("Veridamine improves sleep quality by 18%.", engine=engine, components=set())
+    rep = audit("Veridamine improves sleep quality by 18%.", engine=engine, components=RAW_COMPONENTS)
     v = rep.verdicts[0]
-    assert v.critique is None and v.confidence_detail is not None
+    assert v.critique is None and v.confidence_detail is not None and v.confidence_detail.calibrated == \
+        v.confidence_detail.raw_score
 
 
 def test_signals_are_bounded(engine):

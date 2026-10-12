@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np  # noqa: E402
 
 from truth_engine.bench import scifact as sf  # noqa: E402
+from truth_engine.pipeline.audit import RAW_COMPONENTS  # noqa: E402
 from truth_engine.pipeline.confidence import (Calibrator, brier, cross_val_brier, ece, history_from,  # noqa: E402
                                               reliability)
 
@@ -90,7 +91,7 @@ def main():
         train = sf.load(f"train{tag}")
     else:
         engine = sf.build_engine()
-        train = sf.run("train", components=set(), limit=limit, engine=engine)
+        train = sf.run("train", components=RAW_COMPONENTS, limit=limit, engine=engine)
         sf.save(train, f"train{tag}")
 
     hist = history_from([r["status"] for r in train], [r["correct"] for r in train])
@@ -120,12 +121,13 @@ def main():
     if reuse:
         dev, dev_critic = sf.load(f"dev{tag}"), sf.load(f"dev_critic{tag}")
     else:
-        dev = sf.run("dev", components=set(), limit=limit, engine=engine)
+        dev = sf.run("dev", components=RAW_COMPONENTS, limit=limit, engine=engine)
         sf.save(dev, f"dev{tag}")
         if (sf.BENCH_DIR / f"dev_critic{tag}.jsonl").exists():      # ablation records are reused
             dev_critic = sf.load(f"dev_critic{tag}")
         else:
-            dev_critic = sf.run("dev", components={"critic"}, limit=limit, engine=engine, tag=" (critic)")
+            dev_critic = sf.run("dev", components=RAW_COMPONENTS | {"critic"}, limit=limit, engine=engine,
+                                tag=" (critic)")
             sf.save(dev_critic, f"dev_critic{tag}")
     report = {"calibrator": cal.meta | {"threshold": thr},
               "train": summary("train", train, cal, thr), "dev": summary("dev", dev, cal, thr),
