@@ -47,6 +47,10 @@ def cached(name, fn):
     if path.exists() and not FRESH:
         return [json.loads(x) for x in open(path)]
     recs = fn()
+    failed = sum(bool(r.get("errors")) for r in recs)
+    if failed > 0.1 * len(recs):          # e.g. a daily quota ran out: don't save fake "NEI" results
+        print(f"  NOT SAVED: {name}: {failed}/{len(recs)} calls failed ({recs[-1]['errors'][0][:80]})", flush=True)
+        return recs
     sf.save(recs, f"sys_{name}_{SPLIT}")
     return recs
 
@@ -76,10 +80,10 @@ def run_all():
             cached(f"B_rag_{tag}", lambda l=llm: systems.run_rag(sub, l, engine()))
         best = next((l for l in llms if "gpt-oss-120b" in l.name), llms[0])
         tag = best.name.replace(":", "_").replace("/", "_")
+        if "extras" in OPT:          # the key experiment first, in case the daily quota runs out
+            cached(f"ours_llm_judge_{tag}", lambda: systems.run_ours_llm_judge(sub, best, engine()))
         if "fewshot" in OPT or "extras" in OPT:
             cached(f"B_rag_fewshot_{tag}", lambda: systems.run_rag_fewshot(sub, best, engine()))
-        if "extras" in OPT:
-            cached(f"ours_llm_judge_{tag}", lambda: systems.run_ours_llm_judge(sub, best, engine()))
         if len(llms) >= 2:
             judge = max(llms, key=lambda m: ("large", "medium", "small").index(m.spec.tier) * -1)
             cached("C_vote", lambda: systems.run_vote(sub, llms))
