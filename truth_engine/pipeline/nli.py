@@ -29,6 +29,9 @@ from ..config import DATA_DIR
 MODELS = {
     "base": "MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli",
     "large": "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli",
+    # fine-tuned in step 8.5 (scripts/finetune_verifier.py); local folders, not downloadable
+    "ft-large": "local/truth-engine-verifier-large",
+    "ft-base": "local/truth-engine-verifier-base",
 }
 DEFAULT_MODEL = "large"
 REQUIRED = ("config.json", "model.safetensors")

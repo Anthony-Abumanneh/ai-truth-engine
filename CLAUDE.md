@@ -82,8 +82,8 @@ Not medical advice; the UI and README must say so.
 | 5 | Analyzer, router (contextual bandit), compute budgets, independent solvers | ✅ Done |
 | 6 | Critic, judge, calibrated confidence, abstention | ✅ Done |
 | 7 | Orchestrator, evidence tree, feedback loop, watched claims | ✅ Done |
-| 8 | Benchmark (SciFact), baselines A–D, ablations, calibration report card | ⏳ **Next** |
-| 8.5 | Fine-tuning on A100: verifier, evidence reranker, study-design classifier, check-worthiness | Planned |
+| 8 | Benchmark (SciFact), baselines A–D, ablations, calibration report card | ✅ Done |
+| 8.5 | Fine-tuning on A100: verifier, evidence reranker, study-design classifier, check-worthiness | ⏳ **Next** |
 | 8.6 | Open-access full text (PubMed Central / Europe PMC) with reranked passage selection | Planned |
 | 9 | FastAPI server, CLI, audit-first web UI | Planned |
 | 9.5 | MCP server (LLM tool) + browser extension, on the same API | Planned |
@@ -417,7 +417,79 @@ New package `truth_engine/science/`:
   errors remain (e.g. "low-dose melatonin is a useful strategy" read as
   contradicting; a Mediterranean-diet trial counted as fish-oil evidence).
 
-### Steps 8–10 (intended design)
+### Step 8 — benchmark (done)
+- `bench/metrics.py` (accuracy, macro-F1, per-label P/R/F1, coverage, acc. on
+  answered, ECE/Brier/reliability on `conf_pred`, citation P/R, latency,
+  tokens, cost; `bootstrap_diff` paired CI; `red_flag_scores`),
+  `bench/systems.py` (run_ours; baselines A single / B rag / C vote / D judge;
+  B few-shot from train examples whose abstracts aren't dev evidence;
+  ours_llm_judge = our evidence + red flags + verdict shown to an LLM),
+  `bench/builtin.py` (28 in-sample trap claims), `scripts/benchmark.py`
+  (records cached in data/bench/sys_*; refuses to save runs with >10% failed
+  calls; `report` → docs/benchmark_report.md).
+- Components switchable: nli, falsification, independence, source_quality,
+  adaptive, calibration, abstention, critic (`audit.DEFAULT_COMPONENTS`).
+- LLMs: free tiers via OpenAI-compatible endpoints (providers gemini / groq /
+  openrouter; models in .env `TE_GEMINI_MODELS`, `TE_GROQ_MODELS`). Used:
+  gemini-flash-lite-latest (flash hit a 20/day cap), groq openai/gpt-oss-120b,
+  qwen/qwen3.8-27b. All responses cached (data/cache/llm). Groq gpt-oss has a
+  daily quota that a ~400-call run exhausts; LLM wrapper marks a model
+  exhausted on daily-quota 429s.
+- **Results (SciFact dev; LLM systems on the first 100 claims):** ours 0.603
+  acc / ECE 0.056 (n=300; 0.61 on the 100). gpt-oss + RAG 0.86 / 0.088;
+  Gemini + RAG 0.84; Qwen + RAG 0.80; few-shot RAG 0.80 (examples *hurt*);
+  D judge 0.80 / 0.095; ours evidence + gpt-oss judge 0.74 / **0.054**;
+  A gpt-oss alone 0.52; C vote 0.44. Ours significantly beats no-retrieval
+  LLMs; RAG + LLM significantly beats ours on accuracy.
+- Ablations (300): only NLI matters on SciFact (−0.12). falsification,
+  independence, source quality, adaptive, critic: no measurable change
+  (SciFact has no echo chambers/low-quality sources; evidence and counter-
+  evidence share one abstract). Calibration: same accuracy, ECE 0.25 → 0.056.
+- Built-in trap set: 0.93 acc, flags P 0.96 / R 1.00 (in-sample). Fixes it
+  drove: relative-risk flag needs a magnitude; judge abstains when all
+  support is observational / animal / in-vitro (generalization flags ≥ 0.7).
+- Bug found: `check_claim` without a calibrator ran uncalibrated; it now
+  loads the default calibrator itself (first ablation pass was redone).
+- Latency work: gather() runs web + literature (support + falsification)
+  in parallel; PubMed ∥ OpenAlex; venue ∥ Crossref enrichment; incremental
+  escalation (skip already-searched sources, keep earlier results); Tavily
+  basic depth, 2 web queries/claim; NLI ≤ 24 pairs/pass, 256 tokens,
+  length-sorted batches; query-embedding cache; live literature claims start
+  at medium. `scripts/profile_live.py` times each stage.
+- Interpretation for the README/resume: LLM + RAG reasons better; ours is
+  best-calibrated, local and $0. Verifier accuracy is the gap → step 8.5.
+- Repo public: github.com/Anthony-Abumanneh/ai-truth-engine (README
+  rewritten results-first, 2026-10-14).
+
+### Step 8.5 — fine-tuning (in progress, 2026-10-15)
+- Built: `bench/training_data.py` (SciFact train rationale pairs + hard
+  negatives + NEI, ×2; HealthVer train; COVID-Fact; val = 10% SciFact train
+  claims + HealthVer dev; SciFact dev claims removed from all data, 4 overlaps
+  found; 20,094 train / 2,197 val pairs), `scripts/finetune_verifier.py`
+  (HF Trainer, --size large|base, best epoch by val macro-F1, saves to
+  data/models/local__truth-engine-verifier-{size} = MODELS ft-large/ft-base,
+  writes training_card.json; --smoke = tiny CPU check), `scripts/eval_nli.py`
+  (raw NLI on SciFact dev pairs + HealthVer test, ms/pair),
+  `training/finetune_verifier.ipynb` (Colab A100: clone public repo → data →
+  before eval → train large + base → after eval → zip to Drive),
+  `requirements-train.txt` (+accelerate).
+- Bugs caught by the CPU smoke test: transformers 5.18 has no `warmup_ratio`
+  (use warmup_steps); checkpoints are stored fp16 and load as fp16 → first
+  AdamW step NaN → now loaded with dtype=float32. Smoke run AFTER the fp32
+  fix was interrupted twice (session ended) — **rerun it first**:
+  `TE_NLI=1 .venv/bin/python scripts/finetune_verifier.py --size base
+  --epochs 1 --max-len 128 --smoke`, check finite val metrics, load
+  `nli.load("ft-base")`, then delete the ft-base folder.
+- Disk: Mac had only ~2 GB free on 2026-10-15 (was 22 GB). Fine-tuned models
+  come back as ~2.4 GB zip + ~2.4 GB unzipped → user must free ~6 GB first.
+- Latency finding: with network cached, NLI on CPU is the bottleneck (37 of
+  59 s for 2 claims). A fine-tuned *base* verifier (~3× faster) matching large
+  would fix it — compare in eval_nli.py.
+- After Colab: unzip into the project, run eval_nli.py, re-tune fusion
+  (eval_stance_scifact train sweep), refit calibrator (scripts/calibrate.py),
+  rerun benchmark.py ours ablations, update README results.
+
+### Steps 8.6–10 (intended design)
 - **4 Audit mode:** `pipeline/claims.py` (sentence → atomic claims;
   split conjunctions; tag kind: efficacy / safety / association /
   mechanism / statistic / causal; check-worthiness filter; keep char
