@@ -85,13 +85,16 @@ def summary(name, recs, cal, thr):
 def main():
     limit = next((int(a.split("=")[1]) for a in sys.argv if a.startswith("--limit=")), None)
     reuse = "--reuse" in sys.argv
-    tag = f"_n{limit}" if limit else ""
+    heldout = "--heldout" in sys.argv     # fit only on SciFact train claims the fine-tuned verifier never saw
+    tag = (f"_n{limit}" if limit else "") + ("_heldout" if heldout else "")
     engine = None
     if reuse:
         train = sf.load(f"train{tag}")
     else:
         engine = sf.build_engine()
-        train = sf.run("train", components=RAW_COMPONENTS, limit=limit, engine=engine)
+        ids = set(json.loads((sf.DATA_DIR / "finetune" / "stats.json").read_text())["held_out_scifact_claims"]) \
+            if heldout else None
+        train = sf.run("train", components=RAW_COMPONENTS, limit=limit, engine=engine, ids=ids)
         sf.save(train, f"train{tag}")
 
     hist = history_from([r["status"] for r in train], [r["correct"] for r in train])
@@ -108,8 +111,12 @@ def main():
     def precision(t):
         sel = [c for c, d, p in zip(correct, decisive, probs) if d and p >= t]
         return np.mean(sel) if len(sel) >= 30 else 0.0
-    thr = next((t for t in grid if precision(t) >= target), grid[-1])
-    acc = {t: np.mean([g == f for g, f in zip(gold, apply(train, cal, t)[1])]) for t in (0.0, thr)}
+    acc_at = lambda t: np.mean([g == f for g, f in zip(gold, apply(train, cal, t)[1])])   # noqa: E731
+    thr = next((t for t in grid if precision(t) >= target), None)
+    if thr is None:              # target unreachable (e.g. few calibration claims): best accuracy instead
+        thr = max(grid, key=lambda t: (round(acc_at(t), 4), -t))
+        print(f"  precision target {target} unreachable on {len(train)} claims; threshold by accuracy instead")
+    acc = {t: acc_at(t) for t in (0.0, thr)}
     cal.threshold = thr
     cal.meta = {"fit_on": f"scifact train ({len(train)} claims)", "cv_brier": cv, "method": method,
                 "target_precision": target, "train_precision_at_threshold": round(float(precision(thr)), 4),
@@ -125,6 +132,8 @@ def main():
         sf.save(dev, f"dev{tag}")
         if (sf.BENCH_DIR / f"dev_critic{tag}.jsonl").exists():      # ablation records are reused
             dev_critic = sf.load(f"dev_critic{tag}")
+        elif "--no-critic" in sys.argv:                            # critic is opt-in; skip its 3x slower ablation
+            dev_critic = dev
         else:
             dev_critic = sf.run("dev", components=RAW_COMPONENTS | {"critic"}, limit=limit, engine=engine,
                                 tag=" (critic)")

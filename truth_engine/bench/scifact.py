@@ -51,10 +51,13 @@ def build_engine() -> EvidenceEngine:
     return eng
 
 
-def run(split: str, *, components=ALL_COMPONENTS, calibrator=None, limit: int | None = None,
+def run(split: str, *, components=ALL_COMPONENTS, calibrator=None, limit: int | None = None, ids=None,
         engine: EvidenceEngine | None = None, tag: str = "", max_tier=None, progress: bool = True) -> list[dict]:
     """Audit each claim (as one claim, no splitting) and record the outcome."""
-    claims = load_claims(split)[:limit]
+    claims = load_claims(split)
+    if ids is not None:
+        claims = [c for c in claims if c["id"] in ids]
+    claims = claims[:limit]
     engine = engine or build_engine()
     run_ = _Run(engine, None, components)
     router = Router(live=False, has_nli=run_.verifier(True, False).nli is not None)

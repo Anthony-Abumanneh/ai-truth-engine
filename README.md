@@ -34,6 +34,11 @@ stand behind it, and says "the evidence isn't good enough" instead of guessing.
 | Retrieval: right abstract in top 5 (BM25 → hybrid with bge-base embeddings) | 85% | **94%** |
 | Evidence judgment, macro-F1 (rules → rules + DeBERTa-v3-large NLI) | 0.44 | **0.77** |
 | Calibration error, ECE (raw → trained calibrator) | 0.25 | **0.056** |
+| Evidence judgment after fine-tuning DeBERTa (large / base) on SciFact + HealthVer + COVID-Fact, A100 | 0.74 / 0.68 | **0.81 / 0.82** |
+
+Fine-tuning ([`training/finetune_verifier.ipynb`](training/finetune_verifier.ipynb)) improved judging
+of expert-chosen evidence, but not the end-to-end pipeline (0.58 vs 0.61, not significant): the
+remaining errors come from *finding and combining* evidence, which is the next step.
 
 **End to end vs. LLM baselines** (same 100 dev claims; full report in
 [`docs/benchmark_report.md`](docs/benchmark_report.md)):
@@ -109,7 +114,8 @@ docs/          CONCEPTS.md (methods explained), benchmark_report.md, original sp
 - [x] Retrieval, scientific sources, audit mode, local NLI verifier
 - [x] Router, critic, calibrated confidence, judge, orchestrator, feedback loop
 - [x] Benchmark vs LLM baselines, ablations, calibration report card
-- [ ] Fine-tune the verifier and an evidence reranker on an A100 (SciFact, HealthVer, COVID-Fact)
+- [x] Fine-tune the verifier on an A100 (SciFact, HealthVer, COVID-Fact)
+- [ ] Evidence reranker and better evidence aggregation (the measured bottleneck)
 - [ ] Open-access full text (PubMed Central / Europe PMC)
 - [ ] FastAPI server and web UI; MCP server so LLMs can fact-check their own answers; browser extension
 - [ ] Deployment, monitoring, GRPO-trained claim writer

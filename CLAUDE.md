@@ -485,7 +485,26 @@ New package `truth_engine/science/`:
 - Latency finding: with network cached, NLI on CPU is the bottleneck (37 of
   59 s for 2 claims). A fine-tuned *base* verifier (~3× faster) matching large
   would fix it — compare in eval_nli.py.
-- After Colab: unzip into the project, run eval_nli.py, re-tune fusion
+- **Colab results (2026-10-17, A100 40GB; large 8.5 min, base 4 min; 1 epoch
+  is enough: val F1 flat from epoch 1→2 while val loss rose):** raw NLI
+  macro-F1 SciFact dev large 0.741 → **0.807**, base 0.677 → **0.816**;
+  HealthVer test 0.455 → 0.766 / 0.441 → 0.778 (in-distribution: trained on
+  HealthVer train). Fused verifier (ft-large) 0.771 → 0.823. Reproduced
+  exactly on the Mac CPU. Executed notebook committed in training/.
+- Fusion thresholds re-checked on the 80 held-out SciFact-train claims (84
+  pairs): best re-tune +0.004 (1 pair) → kept unchanged.
+- **End to end (SciFact dev 300, raw verdicts): ft-base 0.580 vs large 0.613**
+  (29 right→wrong, 19 wrong→right; not significant). More NEI-gold claims
+  wrongly called (23 vs 15): trained on same-abstract negatives, but the
+  pipeline also reads other on-topic abstracts. Dominant error unchanged:
+  ~80 SUPPORT/CONTRADICT claims → NEI; gold abstract among cited evidence for
+  only ~37%. **Next lever = evidence selection/aggregation, not stance.**
+- Default NLI model stays "large" + data/calibrator.json (= calibrator_large_v1);
+  ft-base calibrator (Platt, fit on 80 held-out claims, dev ECE 0.27 → 0.07)
+  saved as data/calibrator_ft-base_heldout.json. calibrate.py: `--heldout`,
+  `--no-critic`, threshold falls back to best accuracy if the precision
+  target is unreachable (80 claims → threshold 0.0).
+- Old plan line (kept for reference): After Colab: unzip into the project, run eval_nli.py, re-tune fusion
   (eval_stance_scifact train sweep), refit calibrator (scripts/calibrate.py),
   rerun benchmark.py ours ablations, update README results.
 

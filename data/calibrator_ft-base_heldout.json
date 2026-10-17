@@ -1,0 +1,25 @@
+{
+ "method": "platt",
+ "weights": [
+  -1.332310936036625,
+  0.8911163111278052
+ ],
+ "history": {
+  "partially_supported": 0.6,
+  "unverified": 0.5208,
+  "supported": 0.7083,
+  "contradicted": 0.8182
+ },
+ "threshold": 0.0,
+ "meta": {
+  "fit_on": "scifact train (80 claims)",
+  "cv_brier": {
+   "logistic": 0.231,
+   "platt": 0.2238
+  },
+  "method": "platt",
+  "target_precision": 0.8,
+  "train_precision_at_threshold": 0.7647,
+  "train_accuracy_at_threshold": 0.625
+ }
+}

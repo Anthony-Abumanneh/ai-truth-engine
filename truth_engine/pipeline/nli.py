@@ -33,14 +33,22 @@ MODELS = {
     "ft-large": "local/truth-engine-verifier-large",
     "ft-base": "local/truth-engine-verifier-base",
 }
-DEFAULT_MODEL = "large"
+DEFAULT_MODEL = "large"     # step 8.5: fine-tuned models judge oracle evidence better (SciFact dev
+                            # macro-F1 large 0.741 -> 0.807, base 0.677 -> 0.816) but did not improve the
+                            # end-to-end pipeline (ft-base 0.580 vs large 0.613 acc, n.s.); ft-base is
+                            # 3x faster: TE_NLI_MODEL=ft-base
 REQUIRED = ("config.json", "model.safetensors")
 OPTIONAL = ("tokenizer.json", "tokenizer_config.json", "special_tokens_map.json", "added_tokens.json", "spm.model")
 MAX_TOKENS = 256          # premise (sentence + neighbours) + claim fit comfortably
 
 
 def model_key() -> str:
-    return os.getenv("TE_NLI_MODEL", DEFAULT_MODEL)
+    key = os.getenv("TE_NLI_MODEL")
+    if key:
+        return key
+    # the fine-tuned model is a local artifact (Colab run); use the public checkpoint without it
+    return DEFAULT_MODEL if all((DATA_DIR / "models" / MODELS[DEFAULT_MODEL].replace("/", "__") / f).exists()
+                                for f in ("config.json", "model.safetensors")) else "large"
 
 
 def model_dir(key: str | None = None) -> Path:

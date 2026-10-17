@@ -1,0 +1,42 @@
+{
+ "large/scifact-dev": {
+  "accuracy": 0.7352,
+  "macro_f1": 0.7413,
+  "ms_per_pair": 9.4
+ },
+ "large/healthver-test": {
+  "accuracy": 0.5151,
+  "macro_f1": 0.4551,
+  "ms_per_pair": 4.9
+ },
+ "ft-large/scifact-dev": {
+  "accuracy": 0.8069,
+  "macro_f1": 0.8072,
+  "ms_per_pair": 7.2
+ },
+ "ft-large/healthver-test": {
+  "accuracy": 0.7729,
+  "macro_f1": 0.7659,
+  "ms_per_pair": 4.9
+ },
+ "base/scifact-dev": {
+  "accuracy": 0.676,
+  "macro_f1": 0.6773,
+  "ms_per_pair": 2.5
+ },
+ "base/healthver-test": {
+  "accuracy": 0.5025,
+  "macro_f1": 0.4413,
+  "ms_per_pair": 1.8
+ },
+ "ft-base/scifact-dev": {
+  "accuracy": 0.8287,
+  "macro_f1": 0.8164,
+  "ms_per_pair": 2.5
+ },
+ "ft-base/healthver-test": {
+  "accuracy": 0.7844,
+  "macro_f1": 0.7775,
+  "ms_per_pair": 1.8
+ }
+}
