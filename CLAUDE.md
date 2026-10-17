@@ -475,13 +475,13 @@ New package `truth_engine/science/`:
   `requirements-train.txt` (+accelerate).
 - Bugs caught by the CPU smoke test: transformers 5.18 has no `warmup_ratio`
   (use warmup_steps); checkpoints are stored fp16 and load as fp16 → first
-  AdamW step NaN → now loaded with dtype=float32. Smoke run AFTER the fp32
-  fix was interrupted twice (session ended) — **rerun it first**:
-  `TE_NLI=1 .venv/bin/python scripts/finetune_verifier.py --size base
-  --epochs 1 --max-len 128 --smoke`, check finite val metrics, load
-  `nli.load("ft-base")`, then delete the ft-base folder.
-- Disk: Mac had only ~2 GB free on 2026-10-15 (was 22 GB). Fine-tuned models
-  come back as ~2.4 GB zip + ~2.4 GB unzipped → user must free ~6 GB first.
+  AdamW step NaN → now loaded with dtype=float32. Fine-tuned models are
+  saved in fp16 (base 360 MB, large ~870 MB). Smoke test PASSED 2026-10-17
+  (`--smoke`: 24/16 pairs, batch 4, 2 threads, last layer + head only; peak
+  RAM 1.45 GB; full-model CPU training froze the 8 GB Mac — never do that).
+  Run anything heavy with `nice -n 19` and OMP_NUM_THREADS=2 locally.
+- Disk: ~8 GB free on 2026-10-17; fp16 models need ~1.2 GB zip + ~1.2 GB
+  unzipped (delete the zip after).
 - Latency finding: with network cached, NLI on CPU is the bottleneck (37 of
   59 s for 2 claims). A fine-tuned *base* verifier (~3× faster) matching large
   would fix it — compare in eval_nli.py.

@@ -64,8 +64,14 @@ class Pairs(torch.utils.data.Dataset):
 
 
 train, val = Pairs(DATA / "train.jsonl"), Pairs(DATA / "val.jsonl")
-if args.smoke:                       # just prove the pipeline runs and stays finite
-    train.rows, val.rows = train.rows[:96], val.rows[:64]
+if args.smoke:
+    # Laptop check only (8 GB RAM): tiny data, 2 threads, and only the last layer + head
+    # are trained so optimizer state stays small. Proves fp32 loading, training without
+    # NaN, fp16 saving and reloading; not a quality measurement.
+    torch.set_num_threads(2)
+    train.rows, val.rows = train.rows[:24], val.rows[:16]
+    for name, p in model.named_parameters():
+        p.requires_grad = name.startswith(("classifier", "pooler")) or ".layer.11." in name
 LABELS = ["entailment", "neutral", "contradiction"]
 
 
@@ -82,7 +88,7 @@ def metrics(p):
 
 targs = TrainingArguments(
     output_dir=str(DATA / f"run-{args.size}"), num_train_epochs=args.epochs, learning_rate=lr,
-    per_device_train_batch_size=args.batch, per_device_eval_batch_size=64, weight_decay=0.01,
+    per_device_train_batch_size=4 if args.smoke else args.batch, per_device_eval_batch_size=8 if args.smoke else 64, weight_decay=0.01,
     warmup_steps=max(1, int(0.1 * len(train) / args.batch * args.epochs)),     # 10% warmup (works across versions)
     eval_strategy="epoch", save_strategy="no" if args.smoke else "epoch", save_total_limit=1,
     load_best_model_at_end=not args.smoke,
@@ -94,7 +100,8 @@ before = trainer.evaluate()
 t0 = time.time()
 trainer.train()
 after = trainer.evaluate()
-trainer.save_model(str(out))
+trainer.model.to(torch.float16)             # store like the original checkpoints: half the size;
+trainer.save_model(str(out))                # the engine upcasts to fp32 when loading
 tok.save_pretrained(str(out))
 card = {"base": nli.MODELS[args.size], "size": args.size, "lr": lr, "epochs": args.epochs, "batch": args.batch,
         "max_len": args.max_len, "seed": args.seed, "train_pairs": len(train), "val_pairs": len(val),
