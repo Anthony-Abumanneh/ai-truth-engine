@@ -49,7 +49,11 @@ PRONOUN_SUBJECTS = re.compile(r"^(?:it|he|she|they|this|these|the supplement|the
 SAFETY = re.compile(r"\b(?:safe|safety|side effects?|adverse|toxic\w*|harmful|harmless|dangerous|overdose|"
                     r"contraindicat\w*)\b", re.I)
 ASSOCIATION = re.compile(r"\b(?:associated with|linked (?:to|with)|correlat\w*|tied to|people who|those who|"
-                         r"drinkers|users (?:had|have)|more likely|less likely)\b", re.I)
+                         r"drinkers|users (?:had|have)|more likely|less likely|"
+                         # epidemiological risk wording states an association, not a mechanism
+                         r"(?:increased|elevated|higher|greater|lower|reduced) risk|increases? the risk|"
+                         r"at (?:higher|increased|greater|lower) risk|predict(?:s|or|ors|ive)|marker (?:of|for)|"
+                         r"(?:can be )?described by)\b", re.I)
 EFFICACY = re.compile(r"\b(?:improv\w*|reduc\w*|boost\w*|increas\w*|lower\w*|rais(?:e|es|ed)|prevent\w*|"
                       r"cur(?:e|es|ed)|treat\w*|help\w*|enhanc\w*|effective|works?|extends?|reverses?|cuts?|"
                       r"halv\w*|slows?|protects?|fights?|burns?|slash\w*)\b", re.I)

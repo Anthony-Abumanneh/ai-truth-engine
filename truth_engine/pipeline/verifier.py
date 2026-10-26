@@ -233,6 +233,10 @@ NLI_DISMISS = 0.99
 NLI_SCOPE = "gated"       # "gated": skip sentences the rules call off-topic (unless a paraphrase
                           # candidate); "all": read every retrieved sentence
 MAX_NLI_PAIRS = 24        # sentences the model reads per verification pass
+# Reranker gate (pipeline/reranker.py): a sentence the reranker scores at least this
+# relevant is read by the NLI model and judged normally, even if it shares few words
+# with the claim. None = off. Chosen on SciFact train (scripts/tune_reranker_gate.py).
+RERANK_GATE: float | None = 0.5    # train sweep 300 claims: off 0.683 acc; 0.05-0.8 all 0.700-0.703
 PREMISE_CONTEXT = True    # the sentence plus its neighbours (evidence often spans sentences)        # P(neutral) at which a soft rule signal is discarded
 
 
@@ -293,6 +297,10 @@ class Verifier:
             from .nli import get_nli
             nli = get_nli()
         self.nli = nli                  # local NLI model, or None (rules only)
+        self.reranker = None
+        if nli is not None and RERANK_GATE is not None:
+            from .reranker import get_reranker
+            self.reranker = get_reranker()
         self.llm = llm                  # optional (provider, ModelSpec)
         self.max_llm_items = max_llm_items
         self.cost_usd = 0.0
@@ -316,9 +324,19 @@ class Verifier:
         # The model reads every on-topic sentence; off-topic ones (wrong subject,
         # almost no shared words) are skipped, as are graph paths (not prose).
         probs: dict[int, dict] = {}
+        rel: dict[int, float] = {}
+        if self.nli is not None and self.reranker is not None:
+            cand = [i for i, r in enumerate(ordered) if r.found_by != "graph"]
+            rel = dict(zip(cand, self.reranker.score([(claim.text, ordered[i].passage.text) for i in cand])))
+            for i, sc in rel.items():
+                if sc >= RERANK_GATE and rules[i].signal == "offtopic":
+                    # on topic by meaning, not by shared words: let the model judge it normally
+                    rules[i] = RuleStance(Stance.NEUTRAL, 0.0, f"reranker relevance {sc:.2f}", "reranked")
         if self.nli is not None:
             idx = [i for i, (r, rs) in enumerate(zip(ordered, rules)) if r.found_by != "graph" and (
                 NLI_SCOPE == "all" or rs.signal != "offtopic" or self._paraphrase_candidate(claim, r))]
+            if rel:
+                idx.sort(key=lambda i: -rel.get(i, 0.0))   # most relevant by the reranker first
             idx = idx[:MAX_NLI_PAIRS]              # most relevant first: bounds latency on long result lists
             pairs = [(self._premise(claim, ordered[i]), claim.text) for i in idx]
             probs = dict(zip(idx, self.nli.predict(pairs))) if pairs else {}

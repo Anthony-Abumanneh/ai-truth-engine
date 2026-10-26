@@ -68,4 +68,4 @@ ECE 0.056, Brier 0.216.
 
 ## Built-in trap set (in-sample: used while building the rules)
 
-Accuracy 0.929 on 28 claims; red flags precision 0.964, recall 1.000 (28 raised, 27 expected).
+Accuracy 0.679 on 28 claims; red flags precision 0.931, recall 1.000 (29 raised, 27 expected).

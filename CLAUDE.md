@@ -83,8 +83,8 @@ Not medical advice; the UI and README must say so.
 | 6 | Critic, judge, calibrated confidence, abstention | ✅ Done |
 | 7 | Orchestrator, evidence tree, feedback loop, watched claims | ✅ Done |
 | 8 | Benchmark (SciFact), baselines A–D, ablations, calibration report card | ✅ Done |
-| 8.5 | Fine-tuning on A100: verifier, evidence reranker, study-design classifier, check-worthiness | ⏳ **Next** |
-| 8.6 | Open-access full text (PubMed Central / Europe PMC) with reranked passage selection | Planned |
+| 8.5 | Fine-tuning: verifier (A100), evidence reranker, study-design classifier | ✅ Done |
+| 8.6 | Open-access full text (PubMed Central / Europe PMC) with reranked passage selection | ⏳ **Next** |
 | 9 | FastAPI server, CLI, audit-first web UI | Planned |
 | 9.5 | MCP server (LLM tool) + browser extension, on the same API | Planned |
 | 10 | Tests, end-to-end runs, final docs | Planned |
@@ -507,6 +507,44 @@ New package `truth_engine/science/`:
 - Old plan line (kept for reference): After Colab: unzip into the project, run eval_nli.py, re-tune fusion
   (eval_stance_scifact train sweep), refit calibrator (scripts/calibrate.py),
   rerun benchmark.py ours ablations, update README results.
+
+### Step 8.5 part 2 — reranker gate, design classifier (done, 2026-10-26)
+- `scripts/diagnose_scifact.py` (dev, 188 SUPPORT/CONTRADICT claims): correct
+  46%; **rationale retrieved but never read by NLI 27%** (word-overlap
+  "offtopic" gate); aggregation 7%; stance wrong 5%; neutral 5%; abstract
+  found but not rationale 5%; abstract not found 5%. Retrieval is NOT the
+  bottleneck. (Diagnosis looked at dev; the fix's threshold was tuned on train.)
+- `pipeline/reranker.py`: cross-encoder/ms-marco-MiniLM-L6-v2 (91 MB,
+  off the shelf, no training needed). **Bug: mmap'd safetensors weights gave
+  NaN in every matmul on this Mac's BLAS; params are cloned after loading**
+  (tests/test_reranker.py guards it). Verifier `RERANK_GATE = 0.5`: sentences
+  scored ≥ 0.5 skip the "offtopic" rule and are read/judged normally; NLI
+  pairs ordered by reranker score. Train sweep (300 claims): off 0.683, gates
+  0.05–0.8 all 0.700–0.703 → 0.5.
+- `science/design_classifier.py`: TF-IDF + logistic regression, distant
+  labels from PubMed publication types/MeSH (8 designs, 7,300 abstracts,
+  data/finetune/study_design.jsonl; model data/models/study_design_clf.joblib,
+  rebuild with `python -m truth_engine.science.design_classifier`). Held-out
+  PMIDs: classifier 0.92 acc; rules+classifier 0.80 vs rules-only 0.45
+  (unknown 51% → 16%; animal recall 0.13 → 0.76). Used only for papers with no
+  PubMed tags and when rules say unknown (`scripts/eval_study_design.py`).
+- Fixes found on the way: risk wording ("increased risk", "increases the risk
+  of", "predicts", "described by") = association, not causal (was blocking
+  correct SciFact supports via correlation_as_causation); red flags no longer
+  count as `unresolved_uncertainty` for CONTRADICTED verdicts (they weaken
+  the support, i.e. strengthen the contradiction).
+- **Results, dev 300:** cited expert evidence 58% → **70%**; pre-judge
+  accuracy 0.613 → 0.620; final (calibrated, abstention 0.65) 0.603 → 0.603;
+  stated-verdict accuracy 0.73 → 0.77 at 37% coverage; ECE 0.056 → **0.043**.
+  Train: ECE 0.037, stated 0.816.
+- **Known regression: trap set 0.93 → 0.68.** Verdicts still correct
+  (conf_pred right) but general-knowledge contradictions get 0.39–0.53
+  confidence < 0.65 bar: calibrator fit on SciFact (contradicted reliability
+  0.63) is domain-specific. Proper fix = calibration data beyond SciFact
+  (FEVER / general facts), not threshold hacking.
+- Check-worthiness classifier: dropped (only political-debate data exists;
+  no science set to show it beats the rules).
+- Old calibrator kept as data/calibrator_large_v1.json.
 
 ### Steps 8.6–10 (intended design)
 - **4 Audit mode:** `pipeline/claims.py` (sentence → atomic claims;

@@ -33,19 +33,26 @@ stand behind it, and says "the evidence isn't good enough" instead of guessing.
 |---|---|---|
 | Retrieval: right abstract in top 5 (BM25 → hybrid with bge-base embeddings) | 85% | **94%** |
 | Evidence judgment, macro-F1 (rules → rules + DeBERTa-v3-large NLI) | 0.44 | **0.77** |
-| Calibration error, ECE (raw → trained calibrator) | 0.25 | **0.056** |
+| Calibration error, ECE (raw → trained calibrator) | 0.25 | **0.043** |
 | Evidence judgment after fine-tuning DeBERTa (large / base) on SciFact + HealthVer + COVID-Fact, A100 | 0.74 / 0.68 | **0.81 / 0.82** |
 
+| Expert's evidence among the sources the engine cites (word-overlap gate → MiniLM reranker gate) | 58% | **70%** |
+| Accuracy when the engine states a verdict | 73% | **77%** |
+| Study design identified from abstract text (rules → rules + TF-IDF classifier trained on 6k PubMed-tagged abstracts) | 45% | **80%** |
+
 Fine-tuning ([`training/finetune_verifier.ipynb`](training/finetune_verifier.ipynb)) improved judging
-of expert-chosen evidence, but not the end-to-end pipeline (0.58 vs 0.61, not significant): the
-remaining errors come from *finding and combining* evidence, which is the next step.
+of expert-chosen evidence, but not the end-to-end pipeline (0.58 vs 0.61, not significant). A
+diagnosis (`scripts/diagnose_scifact.py`) then showed why: for 27% of claims the expert's evidence
+sentence *was* retrieved but a word-overlap filter stopped the model from reading it. A small
+reranker now decides relevance by meaning, so the engine uses the right evidence far more often;
+final accuracy stays ~0.60 because the remaining errors are in judging and combining evidence.
 
 **End to end vs. LLM baselines** (same 100 dev claims; full report in
 [`docs/benchmark_report.md`](docs/benchmark_report.md)):
 
 | System | Accuracy | Calibration error (ECE) | Cost |
 |---|---|---|---|
-| **Truth Engine (local DeBERTa + bge-base models)** | 0.61 | **0.056** | $0 |
+| **Truth Engine (local DeBERTa + bge-base models)** | 0.61 | **0.043** | $0 |
 | Truth Engine evidence + gpt-oss-120b as judge | 0.74 | **0.054** | free tier |
 | gpt-oss-120b + standard RAG | **0.86** | 0.088 | free tier |
 | gpt-oss-120b + RAG + few-shot examples | 0.80 | 0.083 | free tier |
@@ -57,9 +64,11 @@ remaining errors come from *finding and combining* evidence, which is the next s
 The Truth Engine is the **best-calibrated system** tested, runs fully locally for $0, and beats
 LLMs without retrieval. Ablations show the NLI model is the main accuracy driver (−12 points
 without it). SciFact has no echo chambers or low-quality sources, so the echo detector and
-source grading are tested separately on a built-in trap set (93% accuracy, red flags 96%
-precision / 100% recall; in-sample). Closing the accuracy gap is the goal of the next step
-(fine-tuning the verifier).
+source grading are tested separately on a built-in trap set (in-sample; red flags 93%
+precision / 100% recall). Its accuracy fell from 93% to 68% after the calibrator was refit: the
+verdicts are still right, but general-knowledge contradictions now fall below the confidence bar,
+because the calibrator learned from SciFact, where contradictions are right only ~63% of the time.
+Calibrating on general-fact data (e.g. FEVER) is open work.
 
 ## Hardware & Performance
 
@@ -115,7 +124,8 @@ docs/          CONCEPTS.md (methods explained), benchmark_report.md, original sp
 - [x] Router, critic, calibrated confidence, judge, orchestrator, feedback loop
 - [x] Benchmark vs LLM baselines, ablations, calibration report card
 - [x] Fine-tune the verifier on an A100 (SciFact, HealthVer, COVID-Fact)
-- [ ] Evidence reranker and better evidence aggregation (the measured bottleneck)
+- [x] Evidence reranker (relevance gate), study-design classifier, diagnosis of where claims are lost
+- [ ] Better evidence aggregation; calibration beyond SciFact (general facts)
 - [ ] Open-access full text (PubMed Central / Europe PMC)
 - [ ] FastAPI server and web UI; MCP server so LLMs can fact-check their own answers; browser extension
 - [ ] Deployment, monitoring, GRPO-trained claim writer

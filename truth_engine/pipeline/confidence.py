@@ -63,8 +63,16 @@ def signals(verdict: ClaimVerdict, critique: CritiqueReport | None, analysis: Qu
     lineages = len({i.lineage for i in win_items if i.lineage is not None})
     pool = win_items if win_items else verdict.supporting + verdict.contradicting
     nli_probs = [i.nli[nli_key] for i in pool if i.nli]
-    # critic findings when the critic ran, else the red flags directly
-    severity = sum(f.severity for f in critique.findings) if critique else sum(f.severity for f in verdict.red_flags)
+    # critic findings when the critic ran, else the red flags directly. Red flags all
+    # describe weaknesses of the claim's *support* (echo chamber, tiny or industry-funded
+    # pilot, mouse-only, retracted...): they make a CONTRADICTED verdict more certain,
+    # so they don't count as unresolved uncertainty there.
+    if st == EvidenceStatus.CONTRADICTED:
+        severity = 0.0
+    elif critique:
+        severity = sum(f.severity for f in critique.findings)
+    else:
+        severity = sum(f.severity for f in verdict.red_flags)
     return {
         "evidence_support": round(win, 4),
         "contradiction": round(lose, 4),

@@ -214,6 +214,14 @@ def classify(title: str = "", abstract: str = "", *, coi: str = "", pub_types: l
     if not design and source_type == "review":
         design = "narrative_review"
         cues.append("source type: review")
+    if not design and source_type in (None, "paper", "preprint") and abstract:
+        # rules found nothing: a classifier trained on PubMed-tagged abstracts fills in
+        # (science/design_classifier.py; abstains below its confidence bar)
+        from .design_classifier import predict
+        guess = predict(title, abstract)
+        if guess:
+            design = guess[0]
+            cues.append(f"classifier: {guess[0]} (p={guess[1]:.2f})")
 
     # ---- species (an RCT in mice is an animal study)
     species = md.get("species") or None

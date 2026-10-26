@@ -7,3 +7,5 @@ sympy>=1.12
 pytest>=8.0
 torch>=2.2            # local NLI model (optional; rules-only without it)
 transformers>=4.40
+scikit-learn>=1.4     # study-design classifier (TF-IDF + logistic regression)
+joblib>=1.3
