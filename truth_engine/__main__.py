@@ -1,0 +1,53 @@
+"""Command line.
+
+    python -m truth_engine serve [--port 8000]
+    python -m truth_engine audit [--live] "text to check"
+    python -m truth_engine ask   [--live] "question?"
+    python -m truth_engine watch "claim"          # save a claim to re-check later
+    python -m truth_engine recheck [--live]       # re-check saved claims, report changes
+"""
+import sys
+
+
+def main(argv: list[str]) -> int:
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__)
+        return 0
+    cmd, rest = argv[0], argv[1:]
+    live = "--live" in rest
+    words = [a for a in rest if not a.startswith("--")]
+    if cmd == "serve":
+        from .api.server import serve
+        port = next((int(a.split("=")[1]) for a in rest if a.startswith("--port=")), 8000)
+        serve(port=port)
+        return 0
+    from .pipeline.orchestrator import Orchestrator
+    orch = Orchestrator(live=live)
+    if cmd == "audit":
+        from .pipeline.audit import render
+        t = orch.audit(" ".join(words))
+        from .schemas import AuditReport
+        print(render(AuditReport(text=t.question, claims=t.claims, verdicts=t.verdicts, sources=t.sources,
+                                 routing=t.routing, skipped=t.skipped, verifiers=t.verifiers, errors=t.errors,
+                                 latency_s=t.latency_s)))
+    elif cmd == "ask":
+        t = orch.ask(" ".join(words))
+        f = t.final
+        print(f"\n  {f.summary}\n  Confidence: {f.confidence.label} ({f.confidence.calibrated:.2f}); {f.decision.value}")
+        if f.body:
+            print(f"  {f.body[:400]}")
+        for c in f.caveats:
+            print(f"  ⚑ {c}")
+    elif cmd == "watch":
+        print("watching:", orch.watch(" ".join(words)))
+    elif cmd == "recheck":
+        changes = orch.recheck_watched()
+        print("\n".join(str(c) for c in changes) or "no changes")
+    else:
+        print(__doc__)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

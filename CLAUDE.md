@@ -84,9 +84,9 @@ Not medical advice; the UI and README must say so.
 | 7 | Orchestrator, evidence tree, feedback loop, watched claims | ✅ Done |
 | 8 | Benchmark (SciFact), baselines A–D, ablations, calibration report card | ✅ Done |
 | 8.5 | Fine-tuning: verifier (A100), evidence reranker, study-design classifier | ✅ Done |
-| 8.6 | Open-access full text (PubMed Central / Europe PMC) with reranked passage selection | ⏳ **Next** |
-| 9 | FastAPI server, CLI, audit-first web UI | Planned |
-| 9.5 | MCP server (LLM tool) + browser extension, on the same API | Planned |
+| 8.6 | Open-access full text (PubMed Central / Europe PMC) with reranked passage selection | Planned |
+| 9 | FastAPI server, CLI, audit-first web UI | ✅ Done |
+| 9.5 | MCP server (LLM tool) + browser extension, on the same API | ⏳ **Next** |
 | 10 | Tests, end-to-end runs, final docs | Planned |
 | 11 | Deploy + MLOps: Docker, HF Spaces, CI eval gate, model versioning, monitoring | Planned |
 | 12 | Stretch: GRPO fine-tuning of a small LLM with the verifier as reward | Planned |
@@ -545,6 +545,25 @@ New package `truth_engine/science/`:
 - Check-worthiness classifier: dropped (only political-debate data exists;
   no science set to show it beats the rules).
 - Old calibrator kept as data/calibrator_large_v1.json.
+
+### Step 9 — API, CLI, web UI (done, 2026-10-26)
+- `api/server.py` `create_app(engine, store, warm)`: FastAPI; models warm up in
+  a background thread (`/api/health` ready flag). Endpoints: health, audit,
+  audit/stream (SSE via POST; worker thread → queue → `event: progress|result|
+  error`), ask, traces (list/get), feedback (400 on bad label), watch
+  (GET/POST/DELETE, recheck). Input limits: audit text ≤ 6000 chars.
+- `api/views.py` `trace_view`: compact JSON (claims with sentence spans for
+  highlighting, ≤5 evidence per side deduped by source, flags, route, answer).
+- `web/index.html`: single file, no build, vanilla JS; tabs Audit / Ask /
+  History / Watched; highlighted spans colour = worst status in the sentence;
+  all server text HTML-escaped, only http(s) links. Light/dark via
+  prefers-color-scheme; checked at 375 px (no horizontal scroll), no console
+  errors.
+- `truth_engine/__main__.py`: `python -m truth_engine serve|audit|ask|watch|recheck`.
+- Preview: entry "truth-engine" in ~/DSA_DASHBOARD_PROJECT/.claude/launch.json
+  (port 8600, OMP_NUM_THREADS=2, nice 10). Server holds ~2.5 GB RAM — stop it
+  when done on the 8 GB Mac.
+- tests/test_api.py (6 tests, TestClient, offline engine, temp SQLite).
 
 ### Steps 8.6–10 (intended design)
 - **4 Audit mode:** `pipeline/claims.py` (sentence → atomic claims;

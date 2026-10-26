@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Truth Engine</title>
+<style>
+:root {
+  --bg: #f7f7f5; --panel: #ffffff; --ink: #1d1d1f; --muted: #6b6b70; --line: #e4e4e0;
+  --accent: #2f5bd3; --accent-ink: #ffffff;
+  --sup: #1f8a4c; --sup-bg: #e3f4ea; --con: #c4362f; --con-bg: #fbe6e4;
+  --unv: #6b6b70; --unv-bg: #ececea; --par: #b07a00; --par-bg: #fbf0d6;
+  --inf: #2f5bd3; --inf-bg: #e5ecfb; --spec: #7a4bc4; --spec-bg: #efe7fa;
+  --flag: #a3420e; --flag-bg: #fdeee2; --shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141416; --panel: #1d1d20; --ink: #ececee; --muted: #9a9aa2; --line: #2e2e33;
+    --accent: #6d8ff0; --accent-ink: #0d1020;
+    --sup: #4cc27f; --sup-bg: #17301f; --con: #f07a72; --con-bg: #3a1c1a; --unv: #a8a8b0; --unv-bg: #2a2a2e;
+    --par: #e2b04a; --par-bg: #352a12; --inf: #8aa6f5; --inf-bg: #1d2640; --spec: #b593ec; --spec-bg: #2a2140;
+    --flag: #f0a070; --flag-bg: #3a2416; --shadow: none;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif; }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 24px 16px 64px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+h1 { font-size: 22px; margin: 0; letter-spacing: -.01em; }
+.sub { color: var(--muted); margin: 2px 0 0; font-size: 14px; }
+.pill { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--unv-bg); color: var(--muted); }
+.pill.ok { background: var(--sup-bg); color: var(--sup); }
+nav { display: flex; gap: 4px; margin: 20px 0 16px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+nav button { background: none; border: 0; padding: 10px 14px; font: inherit; color: var(--muted); cursor: pointer;
+  border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+nav button.on { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; box-shadow: var(--shadow); }
+textarea, input[type=text] { width: 100%; font: inherit; color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+textarea { min-height: 130px; resize: vertical; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.spacer { flex: 1; }
+button.primary { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px; padding: 9px 18px;
+  font: inherit; font-weight: 600; cursor: pointer; }
+button.primary:disabled { opacity: .5; cursor: wait; }
+button.ghost { background: none; border: 1px solid var(--line); color: var(--ink); border-radius: 8px; padding: 6px 12px;
+  font: inherit; font-size: 13px; cursor: pointer; }
+label.toggle { display: flex; gap: 6px; align-items: center; font-size: 14px; color: var(--muted); cursor: pointer; }
+.examples { font-size: 13px; color: var(--muted); }
+.examples button { font-size: 13px; padding: 3px 9px; }
+.log { margin-top: 12px; font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted);
+  max-height: 160px; overflow: auto; white-space: pre-wrap; }
+.log:empty { display: none; }
+.error { color: var(--con); margin-top: 10px; }
+.counts { display: flex; gap: 8px; flex-wrap: wrap; margin: 18px 0 10px; align-items: center; }
+.counts .meta { color: var(--muted); font-size: 13px; }
+.annot { line-height: 1.9; margin: 10px 0 18px; }
+.annot mark { border-radius: 4px; padding: 1px 2px; cursor: pointer; color: inherit; }
+.annot mark sup { font-size: 10px; font-weight: 700; margin-left: 2px; }
+.s-supported, .s-inferred { background: var(--sup-bg); color: var(--sup); }
+.s-contradicted { background: var(--con-bg); color: var(--con); }
+.s-unverified { background: var(--unv-bg); color: var(--unv); }
+.s-partially_supported { background: var(--par-bg); color: var(--par); }
+.s-speculative { background: var(--spec-bg); color: var(--spec); }
+.annot mark.s-supported, .annot mark.s-inferred { box-shadow: inset 0 -2px 0 var(--sup); }
+.annot mark.s-contradicted { box-shadow: inset 0 -2px 0 var(--con); }
+.annot mark.s-unverified { box-shadow: inset 0 -2px 0 var(--unv); }
+.annot mark.s-partially_supported { box-shadow: inset 0 -2px 0 var(--par); }
+.badge { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+.card { margin-top: 12px; scroll-margin-top: 16px; }
+.card h3 { margin: 6px 0 4px; font-size: 16px; line-height: 1.4; }
+.card .why { color: var(--muted); font-size: 14px; margin: 6px 0; }
+.conf { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); margin: 6px 0; flex-wrap: wrap; }
+.bar { width: 140px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--accent); }
+.flags { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+.flag { font-size: 12px; padding: 2px 8px; border-radius: 6px; background: var(--flag-bg); color: var(--flag); cursor: help; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 10px; }
+@media (max-width: 720px) { .cols { grid-template-columns: 1fr; } }
+.cols h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.ev { border-left: 3px solid var(--line); padding: 4px 0 6px 10px; margin-bottom: 10px; font-size: 13.5px; }
+.ev.sup { border-color: var(--sup); } .ev.con { border-color: var(--con); }
+.ev .src { font-weight: 600; } .ev .src a { color: var(--ink); }
+.ev .src a:hover { color: var(--accent); }
+.ev .tags { color: var(--muted); font-size: 12px; margin: 1px 0 3px; }
+.ev q { color: var(--ink); }
+.none { color: var(--muted); font-size: 13px; font-style: italic; }
+.fb { display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+.fb select { font: inherit; font-size: 13px; padding: 4px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--ink); }
+.route { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.answer h2 { margin: 4px 0 6px; font-size: 22px; }
+.list { list-style: none; padding: 0; margin: 0; }
+.list li { padding: 10px 4px; border-bottom: 1px solid var(--line); display: flex; gap: 10px; align-items: baseline; }
+.list li:last-child { border-bottom: 0; }
+.list a { color: var(--ink); cursor: pointer; text-decoration: none; }
+.list a:hover { color: var(--accent); }
+.small { font-size: 12.5px; color: var(--muted); }
+footer { margin-top: 32px; font-size: 12.5px; color: var(--muted); }
+.hide { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>AI Truth Engine</h1>
+      <p class="sub">Checks science and health claims against the research literature, claim by claim.</p>
+    </div>
+    <span id="health" class="pill">starting…</span>
+  </header>
+
+  <nav>
+    <button data-tab="audit" class="on">Audit text</button>
+    <button data-tab="ask">Ask a question</button>
+    <button data-tab="history">History</button>
+    <button data-tab="watch">Watched claims</button>
+  </nav>
+
+  <section id="tab-audit">
+    <div class="panel">
+      <textarea id="text" placeholder="Paste a ChatGPT answer, an article, or an ad…"></textarea>
+      <div class="row">
+        <span class="examples">Try:
+          <button class="ghost" data-ex="0">Supplement ad</button>
+          <button class="ghost" data-ex="1">Encyclopedia facts</button>
+          <button class="ghost" data-ex="2">Health claims (live)</button>
+        </span>
+        <span class="spacer"></span>
+        <label class="toggle"><input type="checkbox" id="live"> Search live literature (slower)</label>
+        <button class="primary" id="run">Check claims</button>
+      </div>
+      <div class="log" id="log"></div>
+      <div class="error" id="err"></div>
+    </div>
+    <div id="result"></div>
+  </section>
+
+  <section id="tab-ask" class="hide">
+    <div class="panel">
+      <input type="text" id="q" placeholder="e.g. Does creatine improve memory in older adults?">
+      <div class="row">
+        <span class="spacer"></span>
+        <label class="toggle"><input type="checkbox" id="qlive"> Search live literature (slower)</label>
+        <button class="primary" id="askbtn">Ask</button>
+      </div>
+      <div class="error" id="qerr"></div>
+    </div>
+    <div id="answer"></div>
+  </section>
+
+  <section id="tab-history" class="hide">
+    <div class="panel"><ul class="list" id="hist"></ul></div>
+    <div id="histview"></div>
+  </section>
+
+  <section id="tab-watch" class="hide">
+    <div class="panel">
+      <div class="row" style="margin-top:0">
+        <input type="text" id="wtext" placeholder="A claim to re-check later, e.g. Melatonin improves sleep onset in adults.">
+        <button class="primary" id="wadd">Watch</button>
+        <button class="ghost" id="wcheck">Re-check all now</button>
+      </div>
+      <p class="small">Saved claims are re-verified on demand; you'll see when a new study or a retraction changes a verdict.</p>
+      <div id="wchanges"></div>
+      <ul class="list" id="wlist"></ul>
+    </div>
+  </section>
+
+  <footer>Not medical advice: this tool summarizes published evidence and does not replace a clinician.
+    Verdicts can be wrong; every one links to its evidence so you can check it.</footer>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const safeUrl = u => /^https?:\/\//i.test(u || "") ? u : null;
+const LABEL = {supported: "✓ Supported", partially_supported: "◐ Partly supported", contradicted: "✗ Contradicted",
+  unverified: "? Unverified", inferred: "→ Inferred", speculative: "~ Speculative"};
+const RANK = {contradicted: 0, unverified: 1, partially_supported: 2, speculative: 3, inferred: 4, supported: 5};
+const EXAMPLES = [
+  "Veridamine improves sleep quality by 18% and is clinically proven. Calvetrin extends lifespan by 30%. I love these products!",
+  "Einstein won the Nobel Prize in Physics for the theory of relativity. The capital of Australia is Canberra. Python was first released in 1991.",
+  "Melatonin improves sleep onset in adults. Vitamin D supplements prevent depression. Green tea extract causes weight loss.",
+];
+
+// ---------------------------------------------------------------- tabs + health
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x === b));
+  document.querySelectorAll("section").forEach(s => s.classList.toggle("hide", s.id !== "tab-" + b.dataset.tab));
+  if (b.dataset.tab === "history") loadHistory();
+  if (b.dataset.tab === "watch") loadWatch();
+});
+async function health() {
+  try {
+    const h = await (await fetch("/api/health")).json();
+    $("#health").textContent = h.ready ? "models ready" : "loading models…";
+    $("#health").classList.toggle("ok", h.ready);
+    if (!h.ready) setTimeout(health, 3000);
+  } catch { $("#health").textContent = "server offline"; }
+}
+health();
+document.querySelectorAll("[data-ex]").forEach(b => b.onclick = () => {
+  $("#text").value = EXAMPLES[b.dataset.ex];
+  $("#live").checked = b.dataset.ex === "2";
+});
+
+// ---------------------------------------------------------------- audit (streamed)
+$("#run").onclick = async () => {
+  const text = $("#text").value.trim();
+  if (!text) return;
+  $("#run").disabled = true; $("#log").textContent = ""; $("#err").textContent = ""; $("#result").innerHTML = "";
+  try {
+    const res = await fetch("/api/audit/stream", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({text, live: $("#live").checked})});
+    if (!res.ok) throw new Error((await res.json()).detail?.[0]?.msg || res.statusText);
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, {stream: true});
+      let i;
+      while ((i = buf.indexOf("\n\n")) >= 0) {
+        const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+        const ev = /event: (\w+)/.exec(chunk)?.[1], data = JSON.parse(/data: (.*)/s.exec(chunk)?.[1] || "null");
+        if (ev === "progress") { $("#log").textContent += data.message + "\n"; $("#log").scrollTop = 1e9; }
+        else if (ev === "result") renderResult(data, $("#result"));
+        else if (ev === "error") $("#err").textContent = data.message;
+      }
+    }
+  } catch (e) { $("#err").textContent = "Error: " + e.message; }
+  $("#run").disabled = false;
+};
+
+function renderResult(r, el) {
+  const c = r.counts || {};
+  const chips = Object.keys(c).sort((a, b) => RANK[a] - RANK[b])
+    .map(s => `<span class="badge s-${s}">${c[s]} ${esc(LABEL[s] || s).replace(/^[^ ]+ /, "")}</span>`).join("");
+  el.innerHTML = `<div class="counts">${chips || '<span class="none">No check-worthy claims found.</span>'}
+      <span class="spacer"></span><span class="meta">${r.claims.length} claim(s) · ${r.latency_s?.toFixed?.(1) ?? "?"} s</span></div>
+    ${r.mode === "audit" ? `<div class="panel annot">${annotate(r)}</div>` : ""}
+    ${r.claims.map((cl, i) => card(cl, i + 1, r.query_id)).join("")}
+    ${r.skipped?.length ? `<p class="small">Not checked (opinion or not check-worthy): ${r.skipped.map(s => "“" + esc(s.text) + "”").join(", ")}</p>` : ""}
+    ${r.errors?.length ? `<p class="small">Source errors: ${esc(r.errors.join("; "))}</p>` : ""}`;
+  bindCards(el);
+}
+
+function annotate(r) {
+  const text = r.input, spans = {};
+  r.claims.forEach((cl, i) => { if (cl.span) { const k = cl.span.join(":"); (spans[k] ||= {span: cl.span, items: []}).items.push([i + 1, cl]); } });
+  const ordered = Object.values(spans).sort((a, b) => a.span[0] - b.span[0]);
+  let out = "", pos = 0;
+  for (const {span: [s, e], items} of ordered) {
+    if (s < pos) continue;
+    const worst = items.map(x => x[1].status).sort((a, b) => RANK[a] - RANK[b])[0];
+    out += esc(text.slice(pos, s)) + `<mark class="s-${worst}" data-go="c-${items[0][0]}">${esc(text.slice(s, e))}<sup>${items.map(x => x[0]).join(",")}</sup></mark>`;
+    pos = e;
+  }
+  return out + esc(text.slice(pos));
+}
+
+function evidence(list, cls) {
+  if (!list.length) return '<p class="none">None found.</p>';
+  return list.map(e => {
+    const url = safeUrl(e.url);
+    const title = url ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(e.title)}</a>` : esc(e.title);
+    const tags = [e.study, e.tier && "quality " + e.tier, e.publisher, e.published?.slice(0, 4)].filter(Boolean).map(esc).join(" · ");
+    return `<div class="ev ${cls}"><div class="src">${title}</div><div class="tags">${tags}</div><q>${esc(e.text)}</q></div>`;
+  }).join("");
+}
+
+function card(cl, n, qid) {
+  const lean = cl.leaning ? ` · leans ${esc(LABEL[cl.leaning] || cl.leaning)}` : "";
+  const echo = cl.supporting_sources ? `<div class="small">Echo check: ${cl.supporting_sources} supporting source(s) → ${cl.independent_lines} independent line(s) of evidence.</div>` : "";
+  const route = cl.route?.length ? `<div class="route">Search effort: ${cl.route.map(p => esc(p.tier) + (p.why_next ? ` (${esc(p.why_next)})` : "")).join(" → ")}</div>` : "";
+  return `<div class="panel card" id="c-${n}" data-claim="${esc(cl.id)}" data-q="${esc(qid)}">
+    <span class="badge s-${cl.status}">${n} · ${esc(LABEL[cl.status] || cl.status)}</span>
+    <h3>${esc(cl.text)}</h3>
+    <div class="conf"><div class="bar"><i style="width:${Math.round(cl.confidence * 100)}%"></i></div>
+      Confidence ${esc(cl.confidence_label || "")} (${Math.round(cl.confidence * 100)}%)${lean}</div>
+    <p class="why">${esc(cl.rationale)}</p>${echo}
+    ${cl.red_flags.length ? `<div class="flags">${cl.red_flags.map(f => `<span class="flag" title="${esc(f.message)}">⚑ ${esc(f.kind.replaceAll("_", " "))}</span>`).join("")}</div>` : ""}
+    <div class="cols"><div><h4>Supporting</h4>${evidence(cl.supporting, "sup")}</div>
+      <div><h4>Against</h4>${evidence(cl.contradicting, "con")}</div></div>
+    ${route}
+    <div class="fb">Was this verdict right?
+      <button class="ghost" data-fb="yes">Yes</button><button class="ghost" data-fb="no">No</button>
+      <select class="hide"><option value="">Correct verdict…</option><option value="supported">Supported</option>
+        <option value="contradicted">Contradicted</option><option value="unverified">Not enough evidence</option></select>
+      <span class="small fbmsg"></span></div>
+  </div>`;
+}
+
+function bindCards(el) {
+  el.querySelectorAll("mark[data-go]").forEach(m => m.onclick = () => document.getElementById(m.dataset.go)?.scrollIntoView({behavior: "smooth"}));
+  el.querySelectorAll(".card").forEach(c => {
+    const send = async label => {
+      const r = await fetch("/api/feedback", {method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({query_id: c.dataset.q, claim_id: c.dataset.claim, label})});
+      c.querySelector(".fbmsg").textContent = r.ok ? "Thanks, recorded." : "Couldn't save.";
+    };
+    c.querySelector('[data-fb="yes"]').onclick = () => {
+      const st = [...c.querySelector(".badge").classList].find(x => x.startsWith("s-")).slice(2); send(st);
+    };
+    c.querySelector('[data-fb="no"]').onclick = () => c.querySelector("select").classList.remove("hide");
+    c.querySelector("select").onchange = e => e.target.value && send(e.target.value);
+  });
+}
+
+// ---------------------------------------------------------------- ask
+$("#askbtn").onclick = async () => {
+  const question = $("#q").value.trim();
+  if (!question) return;
+  $("#askbtn").disabled = true; $("#qerr").textContent = ""; $("#answer").innerHTML = '<p class="small">Searching and verifying…</p>';
+  try {
+    const r = await fetch("/api/ask", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({question, live: $("#qlive").checked})});
+    if (!r.ok) throw new Error(r.statusText);
+    renderAnswer(await r.json(), $("#answer"));
+  } catch (e) { $("#qerr").textContent = "Error: " + e.message; $("#answer").innerHTML = ""; }
+  $("#askbtn").disabled = false;
+};
+function renderAnswer(r, el) {
+  const a = r.answer || {};
+  el.innerHTML = `<div class="panel card answer"><span class="small">Answer</span><h2>${esc(a.summary)}</h2>
+    <div class="conf"><div class="bar"><i style="width:${Math.round((a.confidence || 0) * 100)}%"></i></div>
+      Confidence ${esc(a.confidence_label || "")} (${Math.round((a.confidence || 0) * 100)}%)</div>
+    ${a.body ? `<p class="why">${esc(a.body)}</p>` : ""}
+    ${(a.caveats || []).length ? `<div class="flags">${a.caveats.map(c => `<span class="flag">⚑ ${esc(c)}</span>`).join("")}</div>` : ""}
+    ${r.candidates?.length ? `<p class="small">Candidate answers checked: ${r.candidates.map(c => esc(c.answer) + " (" + esc(c.model) + ")").join(", ")}</p>` : ""}
+  </div><div class="sub-claims"></div>`;
+  const sub = el.querySelector(".sub-claims");
+  sub.innerHTML = r.claims.map((cl, i) => card(cl, i + 1, r.query_id)).join("");
+  bindCards(sub);
+}
+
+// ---------------------------------------------------------------- history
+async function loadHistory() {
+  const rows = await (await fetch("/api/traces")).json();
+  $("#hist").innerHTML = rows.length ? rows.map(t => `<li><span class="badge s-unverified">${esc(t.mode)}</span>
+      <a data-id="${esc(t.query_id)}">${esc(t.question.slice(0, 140))}</a><span class="spacer"></span>
+      <span class="small">${new Date(t.created_at * 1000).toLocaleString()}</span></li>`).join("")
+    : '<li class="none">No runs yet.</li>';
+  $("#hist").querySelectorAll("a[data-id]").forEach(a => a.onclick = async () => {
+    const r = await (await fetch("/api/traces/" + encodeURIComponent(a.dataset.id))).json();
+    (r.mode === "ask" ? renderAnswer : renderResult)(r, $("#histview"));
+    $("#histview").scrollIntoView({behavior: "smooth"});
+  });
+}
+
+// ---------------------------------------------------------------- watched claims
+async function loadWatch() {
+  const rows = await (await fetch("/api/watch")).json();
+  $("#wlist").innerHTML = rows.length ? rows.map(w => `<li>
+      ${w.last_status ? `<span class="badge s-${esc(w.last_status)}">${esc(LABEL[w.last_status] || w.last_status)}</span>` : '<span class="badge s-unverified">not checked yet</span>'}
+      <span>${esc(w.text)}</span><span class="spacer"></span>
+      <span class="small">${w.last_checked ? "checked " + new Date(w.last_checked * 1000).toLocaleString() : ""}</span>
+      <button class="ghost" data-un="${esc(w.text)}">Remove</button></li>`).join("")
+    : '<li class="none">No watched claims yet.</li>';
+  $("#wlist").querySelectorAll("[data-un]").forEach(b => b.onclick = async () => {
+    await fetch("/api/watch", {method: "DELETE", headers: {"Content-Type": "application/json"}, body: JSON.stringify({text: b.dataset.un})});
+    loadWatch();
+  });
+}
+$("#wadd").onclick = async () => {
+  const text = $("#wtext").value.trim();
+  if (text.length < 3) return;
+  await fetch("/api/watch", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({text})});
+  $("#wtext").value = ""; loadWatch();
+};
+$("#wcheck").onclick = async () => {
+  $("#wcheck").disabled = true; $("#wchanges").innerHTML = '<p class="small">Re-checking…</p>';
+  const r = await (await fetch("/api/watch/recheck", {method: "POST"})).json();
+  $("#wchanges").innerHTML = r.changes.length
+    ? r.changes.map(c => `<p class="flag">⚑ ${esc(c.claim)}: ${esc(c.from)} → ${esc(c.to)}</p>`).join("")
+    : '<p class="small">No verdicts changed.</p>';
+  $("#wcheck").disabled = false; loadWatch();
+};
+</script>
+</body>
+</html>

@@ -90,6 +90,21 @@ cp .env.example .env                                          # optional keys: T
 
 All API keys are optional: without them it runs offline on the local corpus.
 
+## Run It
+
+```bash
+.venv/bin/python -m truth_engine serve            # web app at http://localhost:8000
+.venv/bin/python -m truth_engine audit "Veridamine improves sleep quality by 18% and is clinically proven."
+.venv/bin/python -m truth_engine ask --live "Does melatonin improve sleep onset in adults?"
+```
+
+The web app is audit-first: paste text and every check-worthy claim is highlighted in place and
+colour-coded by verdict, with confidence, red flags, an echo check, and the strongest evidence for
+and against (study type, quality grade, link). Progress streams live while it searches. Ask mode,
+history, feedback buttons and watched claims are on the other tabs. JSON API: `POST /api/audit`,
+`/api/audit/stream` (server-sent events), `/api/ask`, `/api/feedback`, `/api/watch`; see
+`truth_engine/api/server.py`.
+
 ## How to Reproduce Results
 
 ```bash
@@ -127,5 +142,6 @@ docs/          CONCEPTS.md (methods explained), benchmark_report.md, original sp
 - [x] Evidence reranker (relevance gate), study-design classifier, diagnosis of where claims are lost
 - [ ] Better evidence aggregation; calibration beyond SciFact (general facts)
 - [ ] Open-access full text (PubMed Central / Europe PMC)
-- [ ] FastAPI server and web UI; MCP server so LLMs can fact-check their own answers; browser extension
+- [x] FastAPI server, CLI and web UI (audit-first, streaming progress, feedback, history, watched claims)
+- [ ] MCP server so LLMs can fact-check their own answers; browser extension
 - [ ] Deployment, monitoring, GRPO-trained claim writer
