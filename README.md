@@ -105,6 +105,30 @@ history, feedback buttons and watched claims are on the other tabs. JSON API: `P
 `/api/audit/stream` (server-sent events), `/api/ask`, `/api/feedback`, `/api/watch`; see
 `truth_engine/api/server.py`.
 
+### Use it from Claude (MCP)
+
+The engine is also an [MCP](https://modelcontextprotocol.io) server, so Claude and other AI
+assistants can fact-check text, including their own draft answers. Tools: `audit_text`,
+`ask_question`, `watch_claim`, `recheck_watched_claims`.
+
+```bash
+claude mcp add truth-engine -- /path/to/ai-truth-engine/.venv/bin/python -m truth_engine.mcp_server
+```
+
+Claude Desktop (`claude_desktop_config.json`):
+```json
+{"mcpServers": {"truth-engine": {"command": "/path/to/ai-truth-engine/.venv/bin/python",
+                                 "args": ["-m", "truth_engine.mcp_server"]}}}
+```
+
+### Browser extension (Chrome)
+
+Select text on any page → right-click → **Check with Truth Engine**, and a panel shows each claim's
+verdict and evidence. Install: `chrome://extensions` → Developer mode → **Load unpacked** → choose the
+`extension/` folder; keep the server running (`python -m truth_engine serve`). The extension only
+reaches `localhost:8000` (or a server you set in its options) and only touches a page after you use
+its menu item.
+
 ## How to Reproduce Results
 
 ```bash
@@ -129,7 +153,9 @@ truth_engine/
   pipeline/    claims, NLI, verifier, analyzer, router, critic, confidence, judge, orchestrator
   feedback/    SQLite traces, user feedback, watched claims, router learning
   bench/       SciFact harness, LLM baselines, metrics, built-in trap set
+  api/         FastAPI server + JSON views          mcp_server.py   MCP tools for AI assistants
 scripts/       evaluation, calibration and benchmark runners
+web/           single-page web app                  extension/      Chrome extension (MV3)
 docs/          CONCEPTS.md (methods explained), benchmark_report.md, original spec
 ```
 
@@ -143,5 +169,5 @@ docs/          CONCEPTS.md (methods explained), benchmark_report.md, original sp
 - [ ] Better evidence aggregation; calibration beyond SciFact (general facts)
 - [ ] Open-access full text (PubMed Central / Europe PMC)
 - [x] FastAPI server, CLI and web UI (audit-first, streaming progress, feedback, history, watched claims)
-- [ ] MCP server so LLMs can fact-check their own answers; browser extension
+- [x] MCP server so LLMs can fact-check their own answers; Chrome extension
 - [ ] Deployment, monitoring, GRPO-trained claim writer

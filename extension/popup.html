@@ -1,0 +1,22 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>AI Truth Engine</title>
+<style>
+  body { width: 400px; margin: 0; padding: 12px; background: #f7f7f5; font: 13.5px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1d1d1f; }
+  h1 { font-size: 15px; margin: 0 0 8px; }
+  textarea { width: 100%; height: 90px; font: inherit; border: 1px solid #ddd; border-radius: 8px; padding: 8px; }
+  .row { display: flex; gap: 8px; margin: 8px 0; align-items: center; }
+  button { font: inherit; border-radius: 8px; padding: 6px 12px; cursor: pointer; border: 1px solid #ddd; background: #fff; }
+  button.primary { background: #2f5bd3; color: #fff; border: 0; font-weight: 600; }
+  .spacer { flex: 1; } a { color: #2f5bd3; font-size: 12px; }
+</style></head>
+<body>
+  <h1>AI Truth Engine</h1>
+  <textarea id="text" placeholder="Paste text, or use the selection on this page…"></textarea>
+  <div class="row">
+    <button id="sel">Use page selection</button><span class="spacer"></span>
+    <a href="options.html" target="_blank">Settings</a>
+    <button class="primary" id="go">Check</button>
+  </div>
+  <div id="out" class="te"></div>
+  <script src="common.js"></script><script src="render.js"></script><script src="popup.js"></script>
+</body></html>

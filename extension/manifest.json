@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "AI Truth Engine",
+  "version": "0.9.5",
+  "description": "Select text on any page and check its science and health claims against the research literature.",
+  "permissions": ["contextMenus", "activeTab", "scripting", "storage"],
+  "host_permissions": ["http://localhost:8000/*", "http://127.0.0.1:8000/*"],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "background": {"service_worker": "background.js"},
+  "action": {"default_title": "AI Truth Engine", "default_popup": "popup.html"},
+  "options_page": "options.html"
+}

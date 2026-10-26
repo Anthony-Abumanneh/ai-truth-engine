@@ -1,0 +1,371 @@
+{
+ "query_id": "q_8dc810f3df",
+ "mode": "audit",
+ "input": "Veridamine improves sleep quality by 18% and is clinically proven. Einstein won the Nobel Prize in Physics for the theory of relativity. I love it! <img src=x onerror=alert(1)>",
+ "created_at": 1793050638.112514,
+ "latency_s": 8.1,
+ "claims": [
+  {
+   "id": "clm_08bf389ce3",
+   "text": "Veridamine improves sleep quality by 18%.",
+   "sentence": "Veridamine improves sleep quality by 18% and is clinically proven.",
+   "span": [
+    0,
+    66
+   ],
+   "status": "unverified",
+   "decision": "abstain",
+   "leaning": "contradicted",
+   "conflicting": false,
+   "confidence": 0.625,
+   "confidence_label": "MODERATE",
+   "rationale": "Leans contradicted, but the confidence (0.62) is below the bar to state it. Support: 4 source(s) -> 1 independent line(s) of evidence; strongest: Veridamine supplementation and subjective sleep quality: a pilot randomized trial (randomized controlled trial, n=48, not preregistered, industry-funded). Against: Veridamine for sleep quality in adults: a multicentre preregistered randomized controlled trial (randomized controlled trial, n=612, preregistered, publicly funded): \"In a preregistered multicentre randomized controlled trial of 612 adults, veridamine did not significantly improve sleep quality compared with placebo (difference 2%, p = 0.41).\"",
+   "supporting_sources": 4,
+   "independent_lines": 1,
+   "supporting": [
+    {
+     "source_id": "halvorsen-2021",
+     "title": "Veridamine supplementation and subjective sleep quality: a pilot randomized trial",
+     "url": "https://example.org/papers/halvorsen-2021",
+     "publisher": "Journal of Sleep Supplements",
+     "published": "2021-05-10",
+     "type": "paper",
+     "tier": "B",
+     "study": "randomized controlled trial, n=48, not preregistered, industry-funded",
+     "text": "In a pilot randomized trial of 48 adults, veridamine supplementation improved self-reported sleep quality scores by 18% compared with placebo (p = 0.04).",
+     "stance": "entails",
+     "weight": 0.644,
+     "lineage": 0
+    },
+    {
+     "source_id": "news-veridamine",
+     "title": "New supplement boosts sleep quality by 18%, study finds",
+     "url": "https://example.org/news/veridamine-sleep",
+     "publisher": "Daily Health Wire",
+     "published": "2021-05-14",
+     "type": "news",
+     "tier": "C",
+     "study": "news report",
+     "text": "A new study found that veridamine improves sleep quality by 18%.",
+     "stance": "entails",
+     "weight": 0.399,
+     "lineage": 0
+    },
+    {
+     "source_id": "blog-veridamine",
+     "title": "Why I take veridamine every night",
+     "url": "https://example.org/wellness/veridamine",
+     "publisher": "WellnessWithJen",
+     "published": "2022-01-08",
+     "type": "blog",
+     "tier": "D",
+     "study": "opinion / editorial",
+     "text": "Science shows veridamine improves sleep quality, so I started taking it.",
+     "stance": "entails",
+     "weight": 0.21,
+     "lineage": 0
+    },
+    {
+     "source_id": "vendor-veridamine",
+     "title": "VeriSleep product page",
+     "url": "https://example.org/verisleep",
+     "publisher": "VeriSleep Inc.",
+     "published": "2023-03-01",
+     "type": "marketing",
+     "tier": "D",
+     "study": "marketing material",
+     "text": "Clinically proven: veridamine improves sleep quality by 18%.",
+     "stance": "entails",
+     "weight": 0.145,
+     "lineage": 0
+    }
+   ],
+   "contradicting": [
+    {
+     "source_id": "okafor-2024",
+     "title": "Veridamine for sleep quality in adults: a multicentre preregistered randomized controlled trial",
+     "url": "https://example.org/papers/okafor-2024",
+     "publisher": "International Journal of Sleep Medicine",
+     "published": "2024-09-02",
+     "type": "paper",
+     "tier": "A",
+     "study": "randomized controlled trial, n=612, preregistered, publicly funded",
+     "text": "In a preregistered multicentre randomized controlled trial of 612 adults, veridamine did not significantly improve sleep quality compared with placebo (difference 2%, p = 0.41).",
+     "stance": "contradicts",
+     "weight": 0.916,
+     "lineage": 1
+    },
+    {
+     "source_id": "review-2025",
+     "title": "Dietary supplements for insomnia: a systematic review",
+     "url": "https://example.org/reviews/supplements-sleep-2025",
+     "publisher": "Cochrane-style Evidence Review Group",
+     "published": "2025-11-18",
+     "type": "review",
+     "tier": "A",
+     "study": "systematic review",
+     "text": "Current evidence does not support recommending veridamine for improving sleep quality.",
+     "stance": "contradicts",
+     "weight": 0.519,
+     "lineage": 2
+    }
+   ],
+   "red_flags": [
+    {
+     "kind": "failed_replication",
+     "severity": 0.8,
+     "message": "A larger study (randomized controlled trial, n=612, preregistered, publicly funded) did not replicate the original finding."
+    },
+    {
+     "kind": "echo_chamber",
+     "severity": 0.5,
+     "message": "4 supporting sources trace back to 1 independent study."
+    },
+    {
+     "kind": "industry_funded",
+     "severity": 0.5,
+     "message": "Supporting research was funded by a company with a financial interest."
+    },
+    {
+     "kind": "small_sample",
+     "severity": 0.4,
+     "message": "The supporting study has small samples (largest n=48)."
+    }
+   ],
+   "route": [
+    {
+     "tier": "medium",
+     "why_next": "low confidence (0.34)"
+    },
+    {
+     "tier": "high",
+     "why_next": null
+    }
+   ]
+  },
+  {
+   "id": "clm_6229c29585",
+   "text": "Veridamine is clinically proven.",
+   "sentence": "Veridamine improves sleep quality by 18% and is clinically proven.",
+   "span": [
+    0,
+    66
+   ],
+   "status": "contradicted",
+   "decision": "answer_with_caveats",
+   "leaning": "contradicted",
+   "conflicting": false,
+   "confidence": 0.677,
+   "confidence_label": "MODERATE",
+   "rationale": "Certainty claim, judged by the strength of evidence for the effect it accompanies. Leans contradicted, but the confidence (0.62) is below the bar to state it. Support: 4 source(s) -> 1 independent line(s) of evidence; strongest: Veridamine supplementation and subjective sleep quality: a pilot randomized trial (randomized controlled trial, n=48, not preregistered, industry-funded). Against: Veridamine for sleep quality in adults: a multicentre preregistered randomized controlled trial (randomized controlled trial, n=612, preregistered, publicly funded): \"In a preregistered multicentre randomized controlled trial of 612 adults, veridamine did not significantly improve sleep quality compared with placebo (difference 2%, p = 0.41).\"",
+   "supporting_sources": 4,
+   "independent_lines": 1,
+   "supporting": [
+    {
+     "source_id": "halvorsen-2021",
+     "title": "Veridamine supplementation and subjective sleep quality: a pilot randomized trial",
+     "url": "https://example.org/papers/halvorsen-2021",
+     "publisher": "Journal of Sleep Supplements",
+     "published": "2021-05-10",
+     "type": "paper",
+     "tier": "B",
+     "study": "randomized controlled trial, n=48, not preregistered, industry-funded",
+     "text": "In a pilot randomized trial of 48 adults, veridamine supplementation improved self-reported sleep quality scores by 18% compared with placebo (p = 0.04).",
+     "stance": "entails",
+     "weight": 0.644,
+     "lineage": 0
+    },
+    {
+     "source_id": "news-veridamine",
+     "title": "New supplement boosts sleep quality by 18%, study finds",
+     "url": "https://example.org/news/veridamine-sleep",
+     "publisher": "Daily Health Wire",
+     "published": "2021-05-14",
+     "type": "news",
+     "tier": "C",
+     "study": "news report",
+     "text": "A new study found that veridamine improves sleep quality by 18%.",
+     "stance": "entails",
+     "weight": 0.399,
+     "lineage": 0
+    },
+    {
+     "source_id": "blog-veridamine",
+     "title": "Why I take veridamine every night",
+     "url": "https://example.org/wellness/veridamine",
+     "publisher": "WellnessWithJen",
+     "published": "2022-01-08",
+     "type": "blog",
+     "tier": "D",
+     "study": "opinion / editorial",
+     "text": "Science shows veridamine improves sleep quality, so I started taking it.",
+     "stance": "entails",
+     "weight": 0.21,
+     "lineage": 0
+    },
+    {
+     "source_id": "vendor-veridamine",
+     "title": "VeriSleep product page",
+     "url": "https://example.org/verisleep",
+     "publisher": "VeriSleep Inc.",
+     "published": "2023-03-01",
+     "type": "marketing",
+     "tier": "D",
+     "study": "marketing material",
+     "text": "Clinically proven: veridamine improves sleep quality by 18%.",
+     "stance": "entails",
+     "weight": 0.145,
+     "lineage": 0
+    }
+   ],
+   "contradicting": [
+    {
+     "source_id": "okafor-2024",
+     "title": "Veridamine for sleep quality in adults: a multicentre preregistered randomized controlled trial",
+     "url": "https://example.org/papers/okafor-2024",
+     "publisher": "International Journal of Sleep Medicine",
+     "published": "2024-09-02",
+     "type": "paper",
+     "tier": "A",
+     "study": "randomized controlled trial, n=612, preregistered, publicly funded",
+     "text": "In a preregistered multicentre randomized controlled trial of 612 adults, veridamine did not significantly improve sleep quality compared with placebo (difference 2%, p = 0.41).",
+     "stance": "contradicts",
+     "weight": 0.916,
+     "lineage": 1
+    },
+    {
+     "source_id": "review-2025",
+     "title": "Dietary supplements for insomnia: a systematic review",
+     "url": "https://example.org/reviews/supplements-sleep-2025",
+     "publisher": "Cochrane-style Evidence Review Group",
+     "published": "2025-11-18",
+     "type": "review",
+     "tier": "A",
+     "study": "systematic review",
+     "text": "Current evidence does not support recommending veridamine for improving sleep quality.",
+     "stance": "contradicts",
+     "weight": 0.519,
+     "lineage": 2
+    }
+   ],
+   "red_flags": [
+    {
+     "kind": "failed_replication",
+     "severity": 0.8,
+     "message": "A larger study (randomized controlled trial, n=612, preregistered, publicly funded) did not replicate the original finding."
+    },
+    {
+     "kind": "overclaimed_certainty",
+     "severity": 0.7,
+     "message": "Claims certainty (\"clinically proven\") that the evidence does not provide."
+    },
+    {
+     "kind": "echo_chamber",
+     "severity": 0.5,
+     "message": "4 supporting sources trace back to 1 independent study."
+    },
+    {
+     "kind": "industry_funded",
+     "severity": 0.5,
+     "message": "Supporting research was funded by a company with a financial interest."
+    },
+    {
+     "kind": "small_sample",
+     "severity": 0.4,
+     "message": "The supporting study has small samples (largest n=48)."
+    }
+   ],
+   "route": []
+  },
+  {
+   "id": "clm_0f77a90f1f",
+   "text": "Einstein won the Nobel Prize in Physics for the theory of relativity.",
+   "sentence": "Einstein won the Nobel Prize in Physics for the theory of relativity.",
+   "span": [
+    67,
+    136
+   ],
+   "status": "contradicted",
+   "decision": "answer",
+   "leaning": null,
+   "conflicting": false,
+   "confidence": 0.7,
+   "confidence_label": "HIGH",
+   "rationale": "Support: 1 source(s) -> 1 independent line(s) of evidence; strongest: Genius: the man who bent time (opinion / editorial). Against: Albert Einstein: \"The Nobel Prize was not awarded for the theory of relativity.\"",
+   "supporting_sources": 1,
+   "independent_lines": 1,
+   "supporting": [
+    {
+     "source_id": "blog-einstein",
+     "title": "Genius: the man who bent time",
+     "url": "https://example.org/popsci/einstein",
+     "publisher": "PopScience Daily",
+     "published": "2020-03-14",
+     "type": "blog",
+     "tier": "D",
+     "study": "opinion / editorial",
+     "text": "Einstein won the Nobel Prize in Physics in 1921 for his theory of relativity, which changed physics forever.",
+     "stance": "entails",
+     "weight": 0.259,
+     "lineage": 0
+    }
+   ],
+   "contradicting": [
+    {
+     "source_id": "enc-einstein",
+     "title": "Albert Einstein",
+     "url": "https://example.org/encyclopedia/albert-einstein",
+     "publisher": "Open Reference Encyclopedia",
+     "published": "2025-10-07",
+     "type": "encyclopedia",
+     "tier": "B",
+     "study": null,
+     "text": "The Nobel Prize was not awarded for the theory of relativity.",
+     "stance": "contradicts",
+     "weight": 0.711,
+     "lineage": 1
+    },
+    {
+     "source_id": "nobel-1921",
+     "title": "The Nobel Prize in Physics 1921 - official citation",
+     "url": "https://example.org/nobel/physics/1921",
+     "publisher": "Nobel Prize Outreach",
+     "published": "1922-11-09",
+     "type": "primary_record",
+     "tier": "A",
+     "study": null,
+     "text": "The Nobel Prize in Physics 1921 was awarded to Albert Einstein \"for his services to Theoretical Physics, and especially for his discovery of the law of the photoelectric effect\".",
+     "stance": "contradicts",
+     "weight": 0.523,
+     "lineage": 2
+    }
+   ],
+   "red_flags": [],
+   "route": [
+    {
+     "tier": "low",
+     "why_next": null
+    }
+   ]
+  }
+ ],
+ "counts": {
+  "unverified": 1,
+  "contradicted": 2
+ },
+ "skipped": [
+  {
+   "text": "I love it! <img src=x onerror=alert(1)>.",
+   "span": [
+    137,
+    176
+   ],
+   "check_worthiness": 0.15
+  }
+ ],
+ "verifiers": [
+  "rules",
+  "nli:MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
+ ],
+ "errors": []
+}

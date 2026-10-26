@@ -86,8 +86,8 @@ Not medical advice; the UI and README must say so.
 | 8.5 | Fine-tuning: verifier (A100), evidence reranker, study-design classifier | ✅ Done |
 | 8.6 | Open-access full text (PubMed Central / Europe PMC) with reranked passage selection | Planned |
 | 9 | FastAPI server, CLI, audit-first web UI | ✅ Done |
-| 9.5 | MCP server (LLM tool) + browser extension, on the same API | ⏳ **Next** |
-| 10 | Tests, end-to-end runs, final docs | Planned |
+| 9.5 | MCP server (LLM tool) + browser extension, on the same API | ✅ Done |
+| 10 | Tests, end-to-end runs, final docs | ⏳ **Next** |
 | 11 | Deploy + MLOps: Docker, HF Spaces, CI eval gate, model versioning, monitoring | Planned |
 | 12 | Stretch: GRPO fine-tuning of a small LLM with the verifier as reward | Planned |
 
@@ -564,6 +564,25 @@ New package `truth_engine/science/`:
   (port 8600, OMP_NUM_THREADS=2, nice 10). Server holds ~2.5 GB RAM — stop it
   when done on the 8 GB Mac.
 - tests/test_api.py (6 tests, TestClient, offline engine, temp SQLite).
+
+### Step 9.5 — MCP server + Chrome extension (done, 2026-10-26)
+- `truth_engine/mcp_server.py`: **mcp 2.x API** (`from mcp.server.mcpserver
+  import MCPServer`; FastMCP was renamed in v2). Tools audit_text, ask_question,
+  watch_claim, recheck_watched_claims; compact JSON (≤2 evidence per side,
+  why ≤ 400 chars; ~2.2 kB for 2 claims). Lazy engine in module `_orch`
+  (tests inject an offline Orchestrator). stdio; logs quieted. Verified over a
+  real stdio subprocess with production models: 25 s first call (model load).
+  tests/test_mcp.py uses `mcp.client.client.Client(server)` in-process.
+  User has NOT registered it in Claude yet (persistent config: ask first).
+- `extension/` (Chrome MV3): context menu on selection → background worker
+  injects render.js + content.js (activeTab) and POSTs /api/audit
+  (host_permissions localhost:8000; other servers via optional permission
+  requested in options). Panel in a closed shadow DOM, DOM APIs only (no
+  innerHTML); popup (paste or page selection); options (server URL, live).
+  `extension/dev/harness.html` + fixture.json stub chrome.* and drive the real
+  scripts; verified in the preview (panel, close, XSS title rendered as text,
+  no console errors). Launch entry "truth-engine-ext-dev" (port 8601).
+  Not tested in real Chrome by me (needs Load unpacked by the user).
 
 ### Steps 8.6–10 (intended design)
 - **4 Audit mode:** `pipeline/claims.py` (sentence → atomic claims;

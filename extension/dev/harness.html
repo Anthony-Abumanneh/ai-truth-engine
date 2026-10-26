@@ -1,0 +1,42 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Extension harness</title>
+<style>body { font: 16px/1.6 Georgia, serif; max-width: 640px; margin: 40px; color: #222; }</style></head>
+<body>
+<h1>A wellness blog post</h1>
+<p id="article">Veridamine improves sleep quality by 18% and is clinically proven. Einstein won the Nobel Prize in Physics for the theory of relativity.</p>
+<pre id="log" style="font: 12px monospace; color: #666"></pre>
+<!--
+  Dev harness: stubs the Chrome extension APIs and drives the REAL background.js,
+  render.js and content.js through the right-click flow, using fixture.json
+  (a real audit result) instead of a live server. Serve this folder's parent:
+      python3 -m http.server 8601 --directory extension    then open /dev/harness.html
+-->
+<script>window.__realFetch = window.fetch.bind(window);</script>
+<script>
+const log = m => document.getElementById("log").textContent += m + "\n";
+const listeners = {menu: null, msg: []};
+let fixture;
+window.chrome = {
+  runtime: {onInstalled: {addListener: f => f()}, onMessage: {addListener: f => listeners.msg.push(f)}},
+  contextMenus: {create: o => log("menu created: " + o.title), onClicked: {addListener: f => listeners.menu = f}},
+  storage: {sync: {get: async () => ({})}},
+  scripting: {executeScript: async ({files}) => { for (const f of files) await load("../" + f); log("injected: " + files.join(", ")); }},
+  tabs: {sendMessage: async (id, msg) => { log("message to tab: " + msg.type); listeners.msg.forEach(f => f(msg)); }},
+};
+window.importScripts = () => {};                       // background.js runs as a classic script here
+window.fetch = async (url, opt) => {                   // the API call returns the real audit result
+  log("POST " + url + " " + opt.body.slice(0, 60) + "…");
+  return {ok: true, json: async () => fixture};
+};
+const load = src => new Promise((ok, bad) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = bad; document.head.append(s); });
+(async () => {
+  fixture = await (await window.__realFetch("fixture.json")).json();
+  // hostile text in a source title must render as text, never as HTML
+  fixture.claims[0].supporting[0].title = '<img src=x onerror="document.title=\'XSS\'">Pilot trial';
+  await load("../common.js");
+  await load("../background.js");
+  await listeners.menu({menuItemId: "te-check", selectionText: document.getElementById("article").textContent}, {id: 1});
+  log("done; document.title = " + document.title);
+})();
+</script>
+</body></html>

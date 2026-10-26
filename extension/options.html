@@ -1,0 +1,12 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>AI Truth Engine settings</title>
+<style>body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 520px; margin: 32px auto; padding: 0 16px; }
+input[type=text] { width: 100%; font: inherit; padding: 6px 8px; } button { font: inherit; padding: 6px 14px; margin-top: 12px; } .small { color: #6b6b70; font-size: 12.5px; }</style>
+</head><body>
+  <h2>AI Truth Engine settings</h2>
+  <label>Server URL<br><input type="text" id="api"></label>
+  <p class="small">Default http://localhost:8000 (run <code>python -m truth_engine serve</code>). A hosted server will ask for permission to reach its address.</p>
+  <label><input type="checkbox" id="live"> Search the live literature (PubMed, OpenAlex, web): slower, more complete</label><br>
+  <button id="save">Save</button> <span id="msg" class="small"></span>
+  <script src="common.js"></script><script src="options.js"></script>
+</body></html>
