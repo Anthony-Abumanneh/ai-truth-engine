@@ -22,6 +22,7 @@ Suggested order: 1 → 2 → 4 → 5 → 7 → 8 → 9, then the rest as you mee
 - ★ **Hybrid search and reciprocal rank fusion (RRF)** — combining keyword and semantic rankings into one.
 - **Chunking** — splitting documents into passages. This project uses single sentences so evidence is precise.
 - **Query reformulation** — rewriting a claim into several searches, including searches designed to find counterevidence.
+- ★ **Bi-encoders vs cross-encoders (two-stage retrieval)** — an embedding model (bi-encoder) encodes claim and sentence separately, so it can search millions of sentences fast; a cross-encoder reads both together, which is slower but judges relevance better. The engine searches with bge-base, then a small cross-encoder (MiniLM) decides which sentences the NLI model reads.
 
 ## 3. Knowledge graphs
 - ★ **Entities, relations and triples** — facts stored as (subject, relation, object), e.g. (Einstein, born_in, Ulm).
@@ -35,6 +36,8 @@ Suggested order: 1 → 2 → 4 → 5 → 7 → 8 → 9, then the rest as you mee
 - ★ **Fact verification** — the research field around datasets like FEVER and **SciFact** (scientific claims labeled SUPPORTS / REFUTES / not enough info).
 - **Check-worthiness** — deciding which sentences are factual claims worth checking, as opposed to opinions or filler.
 - **Negation, antonyms, number and date matching** — the signals the offline verifier uses to detect contradictions.
+- ★ **Transfer learning and fine-tuning** — start from a model already trained on a related task (DeBERTa trained on general NLI) and continue training on in-domain data (SciFact, HealthVer, COVID-Fact). Needs a held-out split for model selection and fp32 master weights (training directly in fp16 overflowed to NaN here).
+- **Hard negatives** — training examples that look relevant but aren't (other sentences from the same abstract), which teach finer distinctions than random negatives.
 
 ## 5. Evidence-based science and medicine (the niche)
 - ★ **Evidence hierarchy** — systematic reviews/meta-analyses > randomized controlled trials > cohort > case-control > case reports > animal > in-vitro > expert opinion.
@@ -82,6 +85,10 @@ Suggested order: 1 → 2 → 4 → 5 → 7 → 8 → 9, then the rest as you mee
 - ★ **Ablation studies** — remove one component at a time to see what actually helps.
 - **Train/test separation and benchmark contamination** — why the router and calibrator must be evaluated on data they weren't fit on.
 - **Length bias in evaluation** — longer answers can look better without being more correct.
+- ★ **Error analysis by pipeline stage** — tracing each failure to the first stage that lost it (retrieval, filtering, stance, aggregation). Here it showed a word-overlap filter, not the model, was the bottleneck, so fine-tuning the model alone couldn't help.
+- **Distant supervision** — using labels that come for free (PubMed's publication-type tags) to train a classifier (study design) without hand labelling.
+- **Paired bootstrap significance** — resampling the same claims for two systems to see whether an accuracy gap is real or noise.
+- **Domain shift in calibration** — a calibrator fit on one dataset (SciFact) can be miscalibrated on another (general facts); calibration has to be checked per domain.
 
 ## 11. Software engineering used in the code
 - ★ **Python with type hints and Pydantic** — every pipeline object is a validated Pydantic model.
@@ -93,3 +100,6 @@ Suggested order: 1 → 2 → 4 → 5 → 7 → 8 → 9, then the rest as you mee
 - **Environment variables for secrets** — how API keys are supplied without touching code.
 - **pytest** — the test suite.
 - **HTML / CSS / JavaScript** — the web interface.
+- **Model Context Protocol (MCP)** — a standard way for AI assistants to call external tools; the engine exposes audit/ask as MCP tools so Claude can check its own answers.
+- **Browser extensions (Chrome Manifest V3)** — background service worker, context menus, `activeTab` injection, shadow DOM isolation, and rendering untrusted text with DOM APIs (never `innerHTML`) to prevent XSS.
+- **Linting and coverage (ruff, pytest-cov)** — static checks for bugs like unused variables, and measuring which code the tests exercise.

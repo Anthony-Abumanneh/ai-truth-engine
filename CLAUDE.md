@@ -87,8 +87,8 @@ Not medical advice; the UI and README must say so.
 | 8.6 | Open-access full text (PubMed Central / Europe PMC) with reranked passage selection | Planned |
 | 9 | FastAPI server, CLI, audit-first web UI | ✅ Done |
 | 9.5 | MCP server (LLM tool) + browser extension, on the same API | ✅ Done |
-| 10 | Tests, end-to-end runs, final docs | ⏳ **Next** |
-| 11 | Deploy + MLOps: Docker, HF Spaces, CI eval gate, model versioning, monitoring | Planned |
+| 10 | Tests, end-to-end runs, final docs | ✅ Done |
+| 11 | Deploy + MLOps: Docker, HF Spaces, CI eval gate, model versioning, monitoring | ⏳ **Next** |
 | 12 | Stretch: GRPO fine-tuning of a small LLM with the verifier as reward | Planned |
 
 ### Plan additions (agreed 2026-10-06)
@@ -583,6 +583,31 @@ New package `truth_engine/science/`:
   scripts; verified in the preview (panel, close, XSS title rendered as text,
   no console errors). Launch entry "truth-engine-ext-dev" (port 8601).
   Not tested in real Chrome by me (needs Load unpacked by the user).
+
+### Step 10 — tests, end-to-end runs, docs (done, 2026-10-27)
+- MCP server registered for the user in ~/.claude.json top-level
+  `mcpServers.truth-engine` (stdio, OMP_NUM_THREADS=2); backup at
+  ~/.claude.json.bak-truth-engine. No `claude` CLI on PATH (desktop app only).
+- `python -m truth_engine setup`: NLI large + reranker download, design
+  classifier fetch+train; each skipped if present. Found via a fresh-clone
+  test: without it the reranker gate and classifier silently fall back.
+- ruff (pyproject.toml: E,F,W; E501 ignored) clean; requirements-dev.txt.
+  133 tests pass in fast config, production config (TE_EMBEDDINGS=st
+  TE_NLI=1) and a fresh GitHub clone (10 model tests skip there). Coverage
+  79% (lowest: LLM HTTP providers, web search, classifier training path).
+- Benchmark rerun (current system, dev 300): ours 0.600 acc, macro-F1 0.567,
+  ECE 0.043, coverage 36% at 0.771, citation recall 0.70, 1.6 s/claim.
+  Ablations Δ (full − variant): nli +0.150 (only significant); abstention /
+  calibration −0.017 (but answered-precision 0.77 vs 0.68, ECE 0.043 vs
+  0.246); source_quality −0.027 [−0.057, +0.007] n.s. (design classifier
+  down-weights animal/in-vitro abstracts SciFact accepts) — not changed on
+  dev; would need a train check; adaptive +0.003; falsification /
+  independence 0; critic +0.010 n.s., 3.6× slower.
+- README: table fixes (retrieval row = bge-base embedding search on 300
+  *train* claims), setup uses `truth_engine setup`. CONCEPTS.md: bi- vs
+  cross-encoders, fine-tuning, hard negatives, stage-wise error analysis,
+  distant supervision, paired bootstrap, calibration domain shift, MCP,
+  MV3 extensions, lint/coverage.
 
 ### Steps 8.6–10 (intended design)
 - **4 Audit mode:** `pipeline/claims.py` (sentence → atomic claims;

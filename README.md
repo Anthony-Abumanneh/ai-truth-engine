@@ -27,18 +27,18 @@ stand behind it, and says "the evidence isn't good enough" instead of guessing.
 ## Results (SciFact, held-out dev set)
 
 [SciFact](https://github.com/allenai/scifact): expert-labeled scientific claims checked against
-5,183 abstracts. All tuning (model choice, thresholds, calibrator) used the **train** split only.
+5,183 abstracts. All tuning (model choice, thresholds, calibrator) used the **train** split only;
+results are on the held-out **dev** split unless marked.
 
 | Component | Before | After |
 |---|---|---|
-| Retrieval: right abstract in top 5 (BM25 → hybrid with bge-base embeddings) | 85% | **94%** |
+| Retrieval: right abstract in top 5 (keyword BM25 → bge-base embedding search; 300 *train* claims, used to pick the model) | 85% | **94%** |
 | Evidence judgment, macro-F1 (rules → rules + DeBERTa-v3-large NLI) | 0.44 | **0.77** |
 | Calibration error, ECE (raw → trained calibrator) | 0.25 | **0.043** |
 | Evidence judgment after fine-tuning DeBERTa (large / base) on SciFact + HealthVer + COVID-Fact, A100 | 0.74 / 0.68 | **0.81 / 0.82** |
-
 | Expert's evidence among the sources the engine cites (word-overlap gate → MiniLM reranker gate) | 58% | **70%** |
 | Accuracy when the engine states a verdict | 73% | **77%** |
-| Study design identified from abstract text (rules → rules + TF-IDF classifier trained on 6k PubMed-tagged abstracts) | 45% | **80%** |
+| Study design identified from abstract text (rules → rules + TF-IDF classifier trained on ~7,300 PubMed-tagged abstracts; held-out abstracts) | 45% | **80%** |
 
 Fine-tuning ([`training/finetune_verifier.ipynb`](training/finetune_verifier.ipynb)) improved judging
 of expert-chosen evidence, but not the end-to-end pipeline (0.58 vs 0.61, not significant). A
@@ -52,7 +52,7 @@ final accuracy stays ~0.60 because the remaining errors are in judging and combi
 
 | System | Accuracy | Calibration error (ECE) | Cost |
 |---|---|---|---|
-| **Truth Engine (local DeBERTa + bge-base models)** | 0.61 | **0.043** | $0 |
+| **Truth Engine (local DeBERTa + bge-base models)** | 0.60 | **0.043** | $0 |
 | Truth Engine evidence + gpt-oss-120b as judge | 0.74 | **0.054** | free tier |
 | gpt-oss-120b + standard RAG | **0.86** | 0.088 | free tier |
 | gpt-oss-120b + RAG + few-shot examples | 0.80 | 0.083 | free tier |
@@ -62,8 +62,11 @@ final accuracy stays ~0.60 because the remaining errors are in judging and combi
 
 **What this shows:** a large LLM given good retrieval still reasons better on raw accuracy.
 The Truth Engine is the **best-calibrated system** tested, runs fully locally for $0, and beats
-LLMs without retrieval. Ablations show the NLI model is the main accuracy driver (−12 points
-without it). SciFact has no echo chambers or low-quality sources, so the echo detector and
+LLMs without retrieval. Ablations (300 dev claims, paired bootstrap) show the NLI model is the only
+component with a significant accuracy effect (−15 points without it). Abstention trades 1.7 points of
+overall accuracy for precision: verdicts the engine states are right 77% of the time with it, 68%
+without. Turning off source-quality weighting scored +2.7 points on SciFact (not significant; the
+default is unchanged, since tuning on dev would bias the result). SciFact has no echo chambers or low-quality sources, so the echo detector and
 source grading are tested separately on a built-in trap set (in-sample; red flags 93%
 precision / 100% recall). Its accuracy fell from 93% to 68% after the calibrator was refit: the
 verdicts are still right, but general-knowledge contradictions now fall below the confidence bar,
@@ -75,7 +78,9 @@ Calibrating on general-fact data (e.g. FEVER) is open work.
 - **Hardware:** MacBook (Apple Silicon, 8 GB RAM), CPU only. Free-tier LLM APIs (Gemini, Groq)
   for baselines only.
 - **Embedding the SciFact corpus (44,705 sentences, bge-base):** ~40 min once, then cached.
-- **Full SciFact dev benchmark (300 claims):** ~7 min (~1.4 s per claim).
+- **Full SciFact dev benchmark (300 claims):** ~8 min (~1.6 s per claim, 2 CPU threads).
+- **Tests:** 133 tests (110 functions), 79% line coverage; `ruff` lint clean; also pass in a fresh clone
+  (model-dependent tests skip until `setup` runs).
 - **Live audit (PubMed + OpenAlex + web):** ~25–50 s for a typical 2–4 claim text, claims checked in parallel.
 
 ## Setup Instructions
@@ -83,7 +88,7 @@ Calibrating on general-fact data (e.g. FEVER) is open work.
 ```bash
 git clone https://github.com/Anthony-Abumanneh/ai-truth-engine.git && cd ai-truth-engine
 python -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m truth_engine.pipeline.nli download        # DeBERTa-v3-large NLI model (870 MB)
+.venv/bin/python -m truth_engine setup                         # models: NLI verifier, reranker, design classifier (~1 GB)
 mkdir -p data/scifact && curl -L https://scifact.s3-us-west-2.amazonaws.com/release/latest/data.tar.gz | tar -xz -C data/scifact
 cp .env.example .env                                          # optional keys: Tavily, NCBI, Gemini, Groq
 ```

@@ -1,5 +1,6 @@
 """Command line.
 
+    python -m truth_engine setup                  # download / build every model (once, ~1.5 GB)
     python -m truth_engine serve [--port 8000]
     python -m truth_engine audit [--live] "text to check"
     python -m truth_engine ask   [--live] "question?"
@@ -16,6 +17,8 @@ def main(argv: list[str]) -> int:
     cmd, rest = argv[0], argv[1:]
     live = "--live" in rest
     words = [a for a in rest if not a.startswith("--")]
+    if cmd == "setup":
+        return setup()
     if cmd == "serve":
         from .api.server import serve
         port = next((int(a.split("=")[1]) for a in rest if a.startswith("--port=")), 8000)
@@ -46,6 +49,22 @@ def main(argv: list[str]) -> int:
     else:
         print(__doc__)
         return 2
+    return 0
+
+
+def setup() -> int:
+    """Everything a fresh clone needs. Each part is skipped if already present."""
+    from .pipeline import nli, reranker
+    from .science import design_classifier as dc
+    steps = [("NLI verifier (DeBERTa-v3-large, 870 MB)", lambda: nli.is_downloaded("large") or nli.download("large")),
+             ("evidence reranker (MiniLM, 91 MB)",
+              lambda: (reranker.model_dir("msmarco") / "model.safetensors").exists() or reranker.download("msmarco")),
+             ("study-design classifier (fetches ~7k PubMed abstracts, trains in seconds)",
+              lambda: dc.MODEL_PATH.exists() or dc.train(dc.fetch_dataset()))]
+    for name, fn in steps:
+        print(f"- {name} ...", flush=True)
+        fn()
+    print("Embedding model (bge-base) downloads automatically on first use.\nDone.")
     return 0
 
 

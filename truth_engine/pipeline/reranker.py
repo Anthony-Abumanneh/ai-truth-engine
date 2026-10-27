@@ -27,6 +27,23 @@ def model_dir(key: str):
     return DATA_DIR / "models" / MODELS[key].replace("/", "__")
 
 
+def download(key: str = "msmarco"):
+    """Fetch the off-the-shelf reranker from Hugging Face (91 MB)."""
+    import httpx
+    out = model_dir(key)
+    out.mkdir(parents=True, exist_ok=True)
+    for f in ("config.json", "model.safetensors", "tokenizer.json", "tokenizer_config.json",
+              "special_tokens_map.json", "vocab.txt"):
+        if (out / f).exists():
+            continue
+        r = httpx.get(f"https://huggingface.co/{MODELS[key]}/resolve/main/{f}", follow_redirects=True, timeout=120)
+        if r.status_code == 200:
+            (out / f).write_bytes(r.content)
+        elif f in ("config.json", "model.safetensors"):
+            r.raise_for_status()
+    return out
+
+
 class Reranker:
     def __init__(self, key: str):
         import torch
