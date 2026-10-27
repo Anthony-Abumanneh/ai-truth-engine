@@ -1,3 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-truth-engine"
+version = "0.11.0"
+description = "Evidence auditor for scientific and health claims: retrieval, NLI verification, calibrated confidence"
+readme = "README.md"
+requires-python = ">=3.11"
+
+[project.scripts]
+truth-engine = "truth_engine.__main__:cli"
+truth-engine-mcp = "truth_engine.mcp_server:main"
+
+[tool.setuptools.packages.find]
+include = ["truth_engine*"]
+
 [tool.ruff]
 line-length = 120
 target-version = "py312"

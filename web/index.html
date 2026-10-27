@@ -196,6 +196,9 @@ async function health() {
   try {
     const h = await (await fetch("/api/health")).json();
     $("#health").textContent = h.ready ? "models ready" : "loading models…";
+    if (h.allow_live === false) for (const id of ["#live", "#qlive"]) {
+      $(id).checked = false; $(id).disabled = true; $(id).parentElement.title = "Live search is disabled on this server";
+    }
     $("#health").classList.toggle("ok", h.ready);
     if (!h.ready) setTimeout(health, 3000);
   } catch { $("#health").textContent = "server offline"; }

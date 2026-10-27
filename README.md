@@ -87,7 +87,7 @@ Calibrating on general-fact data (e.g. FEVER) is open work.
 
 ```bash
 git clone https://github.com/Anthony-Abumanneh/ai-truth-engine.git && cd ai-truth-engine
-python -m venv .venv && .venv/bin/pip install -r requirements.txt
+python -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/pip install -e .
 .venv/bin/python -m truth_engine setup                         # models: NLI verifier, reranker, design classifier (~1 GB)
 mkdir -p data/scifact && curl -L https://scifact.s3-us-west-2.amazonaws.com/release/latest/data.tar.gz | tar -xz -C data/scifact
 cp .env.example .env                                          # optional keys: Tavily, NCBI, Gemini, Groq
@@ -134,6 +134,23 @@ verdict and evidence. Install: `chrome://extensions` → Developer mode → **Lo
 reaches `localhost:8000` (or a server you set in its options) and only touches a page after you use
 its menu item.
 
+## Deployment & MLOps
+
+| Piece | What it does |
+|---|---|
+| **Docker** (`Dockerfile`) | CPU-only image; pinned models are baked in at build time and their checksums verified. `docker run -p 7860:7860 truth-engine` |
+| **Hugging Face Spaces** | `HF_TOKEN=... python scripts/deploy_space.py <user>/<space>` uploads the git-tracked files and HF builds the image (free CPU tier). |
+| **Model versioning** | Every model is pinned to an exact Hugging Face commit (`truth_engine/models_registry.py`); `truth-engine setup` writes `data/models/MANIFEST.json` with SHA-256 checksums, reported at `/api/health`. |
+| **CI** (`.github/workflows/ci.yml`) | `ruff` lint + the test suite on every push and pull request. |
+| **Docker check** (`docker.yml`) | Builds the image, waits for the models, and smoke-tests a real audit. |
+| **Accuracy gate** (`eval-gate.yml`) | On pull requests that touch the engine (and weekly): runs SciFact dev and **fails if accuracy, macro-F1, stated-verdict precision, citation recall or calibration get worse** than `bench/eval_baseline.json` beyond noise tolerances. |
+| **Monitoring** | `/metrics` (Prometheus) and `/api/stats`: requests, latency histograms, verdict mix, abstention rate, mean confidence, **drift alarm** vs the benchmark's verdict mix, and accuracy from user feedback. One JSON log line per request (hashed client id). |
+| **Abuse protection** | Per-client rate limit (`TE_RATE_LIMIT`, 10/min in the image) and `TE_ALLOW_LIVE=0` to turn off live searches that spend API quotas. |
+
+Data note: third-party datasets (SciFact, HealthVer, COVID-Fact) are downloaded by the scripts, not
+redistributed; the study-design classifier's training set is published as PubMed IDs + labels
+(`data/finetune/study_design_pmids.jsonl`) and re-fetched by `truth-engine setup`.
+
 ## How to Reproduce Results
 
 ```bash
@@ -175,4 +192,5 @@ docs/          CONCEPTS.md (methods explained), benchmark_report.md, original sp
 - [ ] Open-access full text (PubMed Central / Europe PMC)
 - [x] FastAPI server, CLI and web UI (audit-first, streaming progress, feedback, history, watched claims)
 - [x] MCP server so LLMs can fact-check their own answers; Chrome extension
-- [ ] Deployment, monitoring, GRPO-trained claim writer
+- [x] Docker, model versioning, CI with an accuracy gate, monitoring, Hugging Face Spaces deploy script
+- [ ] Public deployment; GRPO-trained claim writer

@@ -11,22 +11,31 @@ Endpoints (JSON):
     GET  /api/traces/{id}                          one run
     POST /api/feedback      {query_id, claim_id, label, note}
     GET  /api/watch | POST /api/watch {text} | DELETE /api/watch {text} | POST /api/watch/recheck
+    GET  /api/stats                      usage, verdict mix, drift vs benchmark, feedback accuracy
+    GET  /metrics                        Prometheus metrics
+
+Deployment settings (environment):
+    TE_ALLOW_LIVE=0      refuse live literature/web searches (public demo: protects API quotas)
+    TE_RATE_LIMIT=20     per-client requests per minute on audit/ask (0 = off)
 """
 from __future__ import annotations
 
 import json
+import os
 import queue
 import threading
+import time
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from ..config import settings
 from ..feedback.traces import TraceStore
 from ..pipeline.orchestrator import Orchestrator
 from ..retrieval import EvidenceEngine
+from .monitoring import EXPENSIVE, Metrics, RateLimiter, client_id, log_request
 from .views import trace_view
 
 WEB = Path(__file__).resolve().parent.parent.parent / "web"
@@ -56,9 +65,31 @@ class WatchIn(BaseModel):
 
 def create_app(*, engine: EvidenceEngine | None = None, store: TraceStore | None = None,
                warm: bool = True) -> FastAPI:
-    app = FastAPI(title="AI Truth Engine", version="0.9")
+    app = FastAPI(title="AI Truth Engine", version="0.11")
     state = {"engine": engine, "store": store, "ready": False}
     lock = threading.Lock()
+    metrics = Metrics()
+    limiter = RateLimiter(int(os.getenv("TE_RATE_LIMIT", "0")))
+    allow_live = os.getenv("TE_ALLOW_LIVE", "1") != "0"
+    app.state.metrics = metrics
+
+    @app.middleware("http")
+    async def observe(request: Request, call_next):
+        t0, client = time.time(), client_id(request.client.host if request.client else None)
+        if request.url.path in EXPENSIVE and not limiter.allow(client):
+            metrics.rate_limited += 1
+            resp = JSONResponse({"detail": "Too many requests: please wait a minute."}, status_code=429)
+        else:
+            resp = await call_next(request)
+        dt = time.time() - t0
+        if request.url.path.startswith("/api"):
+            metrics.request(request.url.path, resp.status_code, dt)
+            log_request(request.url.path, resp.status_code, dt, client)
+        return resp
+
+    def check_live(live: bool) -> None:
+        if live and not allow_live:
+            raise HTTPException(403, "Live literature search is disabled on this server.")
 
     def _engine() -> EvidenceEngine:
         with lock:
@@ -89,23 +120,30 @@ def create_app(*, engine: EvidenceEngine | None = None, store: TraceStore | None
     def health():
         from ..pipeline.nli import get_nli
         nli = get_nli() if state["ready"] else None
-        return {"ready": state["ready"], "nli": nli.name if nli else None,
-                "live_sources": {"pubmed": True, "openalex": True, "web": settings.has_web},
-                "max_text": MAX_TEXT}
+        from ..models_registry import summary
+        return {"ready": state["ready"], "nli": nli.name if nli else None, "allow_live": allow_live,
+                "live_sources": {"pubmed": allow_live, "openalex": allow_live, "web": allow_live and settings.has_web},
+                "max_text": MAX_TEXT, "models": summary()}
 
     @app.post("/api/audit")
     def audit(body: AuditIn):
-        return trace_view(orch(body.live).audit(body.text))
+        check_live(body.live)
+        view = trace_view(orch(body.live).audit(body.text))
+        metrics.result(view, body.live)
+        return view
 
     @app.post("/api/audit/stream")
     def audit_stream(body: AuditIn):
+        check_live(body.live)
         q: queue.Queue = queue.Queue()
 
         def work():
             try:
                 t = orch(body.live).audit(body.text, on_event=lambda ev: q.put(("progress", {
                     "stage": ev.stage, "status": ev.status, "message": ev.message})))
-                q.put(("result", trace_view(t)))
+                view = trace_view(t)
+                metrics.result(view, body.live)
+                q.put(("result", view))
             except Exception as e:                      # surface failures to the page, not a hung stream
                 q.put(("error", {"message": f"{type(e).__name__}: {e}"}))
             q.put(None)
@@ -121,7 +159,10 @@ def create_app(*, engine: EvidenceEngine | None = None, store: TraceStore | None
 
     @app.post("/api/ask")
     def ask(body: AskIn):
-        return trace_view(orch(body.live).ask(body.question))
+        check_live(body.live)
+        view = trace_view(orch(body.live).ask(body.question))
+        metrics.result(view, body.live)
+        return view
 
     @app.get("/api/traces")
     def traces(limit: int = 30):
@@ -161,7 +202,23 @@ def create_app(*, engine: EvidenceEngine | None = None, store: TraceStore | None
 
     @app.post("/api/watch/recheck")
     def recheck(live: bool = False):
+        check_live(live)
         return {"changes": orch(live).recheck_watched()}
+
+    @app.get("/api/stats")
+    def stats():
+        _engine()
+        fb = state["store"].feedback()
+        from ..feedback.learning import same_verdict
+        rated = [f for f in fb if f["predicted"]]
+        return metrics.stats() | {"feedback": {
+            "count": len(fb),
+            "agreement": round(sum(same_verdict(f["predicted"], f["label"]) for f in rated) / len(rated), 3)
+            if rated else None}}
+
+    @app.get("/metrics")
+    def prometheus():
+        return PlainTextResponse(metrics.prometheus(), media_type="text/plain; version=0.0.4")
 
     @app.get("/")
     def index():

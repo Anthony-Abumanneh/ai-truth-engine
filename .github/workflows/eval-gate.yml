@@ -1,0 +1,59 @@
+name: Accuracy gate
+# Runs the full engine on SciFact dev (300 claims) and fails if accuracy, macro-F1,
+# stated-verdict precision, citation recall or calibration got worse than bench/eval_baseline.json.
+on:
+  pull_request:
+    paths: ["truth_engine/**", "data/calibrator.json", "data/corpus/**", "scripts/benchmark.py", "bench/**"]
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"        # weekly: catches drift in pinned dependencies
+
+jobs:
+  scifact-dev:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install (CPU PyTorch)
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+          pip install --no-deps -e .
+      - name: Cache models
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/models
+            ~/.cache/huggingface
+            data/finetune/study_design.jsonl
+          key: models-${{ hashFiles('truth_engine/models_registry.py', 'data/finetune/study_design_pmids.jsonl') }}
+      - name: Cache SciFact embeddings (44,705 sentences; ~30 min to compute on a runner)
+        uses: actions/cache@v4
+        with:
+          path: data/cache/embeddings
+          key: scifact-embeddings-${{ hashFiles('truth_engine/models_registry.py') }}
+      - name: Data and models
+        run: |
+          mkdir -p data/scifact
+          curl -sL https://scifact.s3-us-west-2.amazonaws.com/release/latest/data.tar.gz | tar -xz -C data/scifact
+          truth-engine setup
+      - name: Benchmark (offline, held-out dev split)
+        env:
+          TE_OFFLINE: "1"
+          TE_NLI: "1"
+          TE_NO_DOTENV: "1"
+          OMP_NUM_THREADS: "4"
+        run: python scripts/benchmark.py ours --fresh
+      - name: Gate
+        run: python scripts/eval_gate.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-report
+          path: |
+            data/bench/report_dev.json
+            docs/benchmark_report.md
