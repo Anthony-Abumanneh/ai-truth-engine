@@ -7,7 +7,7 @@ from truth_engine.pipeline.orchestrator import Orchestrator, to_statement
 from truth_engine.pipeline.router import BanditPolicy
 from truth_engine.pipeline.solvers import answer_type_ok
 from truth_engine.retrieval import EvidenceEngine
-from truth_engine.schemas import Decision, EvidenceStatus as S
+from truth_engine.schemas import Decision
 
 
 @pytest.fixture(scope="module")

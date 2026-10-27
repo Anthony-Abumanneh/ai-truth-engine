@@ -1,0 +1,7 @@
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501"]          # long lines are a style choice here; no auto-formatter is used

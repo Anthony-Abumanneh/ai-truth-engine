@@ -15,7 +15,6 @@ calibration and tracing around it.
 """
 from __future__ import annotations
 
-import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor

@@ -66,7 +66,6 @@ def run_all():
                                                        progress="+ critic"))
     if "builtin" in ARGS:
         from truth_engine.retrieval import EvidenceEngine
-        path = sf.BENCH_DIR / "sys_builtin.jsonl"
         recs = systems.run_ours(builtin.load(), EvidenceEngine())
         sf.save(recs, "sys_builtin")
     if "llm" in ARGS:
@@ -76,9 +75,9 @@ def run_all():
         sub = cases(LLM_N)
         for llm in llms:
             tag = llm.name.replace(":", "_").replace("/", "_")
-            cached(f"A_single_{tag}", lambda l=llm: systems.run_single(sub, l))
-            cached(f"B_rag_{tag}", lambda l=llm: systems.run_rag(sub, l, engine()))
-        best = next((l for l in llms if "gpt-oss-120b" in l.name), llms[0])
+            cached(f"A_single_{tag}", lambda m=llm: systems.run_single(sub, m))
+            cached(f"B_rag_{tag}", lambda m=llm: systems.run_rag(sub, m, engine()))
+        best = next((m for m in llms if "gpt-oss-120b" in m.name), llms[0])
         tag = best.name.replace(":", "_").replace("/", "_")
         if "extras" in OPT:          # the key experiment first, in case the daily quota runs out
             cached(f"ours_llm_judge_{tag}", lambda: systems.run_ours_llm_judge(sub, best, engine()))

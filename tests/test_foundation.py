@@ -25,7 +25,8 @@ def test_extract_json_handles_fences_and_prose():
 
 
 def test_quantities_units_scales_and_dates():
-    q = lambda s: [(x.value, x.unit) for x in quantities(s)]
+    def q(s):
+        return [(x.value, x.unit) for x in quantities(s)]
     assert q("sold 4 million units in 2022") == [(4_000_000.0, "unit"), (2022.0, "year")]
     assert q("Halcyon X1 reached 4.1 million units by December 31, 2023") == [(20231231.0, "date"), (4_100_000.0, "unit")]
     assert q("Marketing spend was $412,000, within 2%") == [(412_000.0, "usd"), (2.0, "%")]

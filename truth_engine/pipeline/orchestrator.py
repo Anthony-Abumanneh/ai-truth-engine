@@ -12,7 +12,6 @@ Every run emits StageEvents (for a live UI log), and is saved as a Trace
 """
 from __future__ import annotations
 
-import os
 import re
 import time
 

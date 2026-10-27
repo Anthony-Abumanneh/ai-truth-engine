@@ -294,7 +294,7 @@ def run_ours_llm_judge(cases, llm: LLM, engine, components=DEFAULT_COMPONENTS) -
         lines = [f"[{i.source.id}] ({i.source.title}; {i.source.metadata.get('study_label') or i.source.source_type}; "
                  f"engine read it as {i.stance.value}) {i.passage.text}" for i in items]
         flags = "; ".join(f"{f.kind}: {f.message}" for f in v.red_flags) or "none"
-        user = (f"Evidence found by the engine:\n" + "\n".join(lines) + (f"\n{ctx}" if ctx else "") +
+        user = ("Evidence found by the engine:\n" + "\n".join(lines) + (f"\n{ctx}" if ctx else "") +
                 f"\n\nRed flags: {flags}\nEngine's own verdict: {v.status.value} (confidence {v.confidence:.2f})"
                 f"\n\nClaim: {c['claim']}")
         d, meta = llm.ask(OURS_JUDGE_SYSTEM, user)
