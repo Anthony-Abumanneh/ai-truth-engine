@@ -67,7 +67,9 @@ def setup() -> int:
         fn()
     print("- embedding model (bge-base, 438 MB) ...", flush=True)
     from .retrieval.embeddings import get_embedder
-    get_embedder()
+    if get_embedder().name.startswith("hashing"):       # silent fallback would quietly hurt retrieval
+        print("Could not load bge-base: is sentence-transformers installed? (pip install -r requirements.txt)")
+        return 1
     from .models_registry import write_manifest
     m = write_manifest()
     print(f"Model manifest written: {len(m['files'])} files with SHA-256 checksums.\nDone.")
