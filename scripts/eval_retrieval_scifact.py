@@ -3,7 +3,9 @@ appear among the top-k retrieved sentences? Compares embedders (and BM25-only,
 vector-only, hybrid). Uses TRAIN claims by default so dev stays untouched.
 
     python scripts/eval_retrieval_scifact.py [n_claims] [model ...]
+    SPLIT=dev python scripts/eval_retrieval_scifact.py 300 hashing BAAI/bge-base-en-v1.5   # final held-out check
 """
+import os
 import sys
 import time
 from pathlib import Path
@@ -16,7 +18,7 @@ from truth_engine.retrieval.embeddings import HashingEmbedder, STEmbedder  # noq
 n = int(sys.argv[1]) if len(sys.argv) > 1 else 300
 models = sys.argv[2:] or ["hashing", "sentence-transformers/all-MiniLM-L6-v2", "BAAI/bge-small-en-v1.5",
                           "BAAI/bge-base-en-v1.5", "pritamdeka/S-PubMedBert-MS-MARCO"]
-claims = [c for c in load_claims("train") if c["evidence_docs"]][:n]
+claims = [c for c in load_claims(os.getenv("SPLIT", "train")) if c["evidence_docs"]][:n]
 eng = build_engine()
 store = eng.store
 for model in models:

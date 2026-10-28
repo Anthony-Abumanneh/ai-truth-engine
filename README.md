@@ -32,7 +32,7 @@ results are on the held-out **dev** split unless marked.
 
 | Component | Before | After |
 |---|---|---|
-| Retrieval: right abstract in top 5 (keyword BM25 → bge-base embedding search; 300 *train* claims, used to pick the model) | 85% | **94%** |
+| Retrieval: right paper in the top 5 results (keyword BM25 → hybrid BM25 + bge-base embeddings; 188 held-out dev claims with gold evidence) | 78% | **90%** |
 | Evidence judgment, macro-F1 (rules → rules + DeBERTa-v3-large NLI) | 0.44 | **0.77** |
 | Calibration error, ECE (raw → trained calibrator) | 0.25 | **0.043** |
 | Evidence judgment after fine-tuning DeBERTa (large / base) on SciFact + HealthVer + COVID-Fact, A100 | 0.74 / 0.68 | **0.81 / 0.82** |
