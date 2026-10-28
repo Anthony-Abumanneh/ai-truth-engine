@@ -10,3 +10,9 @@ data/scifact/
 .DS_Store
 data/models/
 data/bench/
+data/finetune/*.csv
+data/finetune/covidfact.jsonl
+data/finetune/train.jsonl
+data/finetune/val.jsonl
+data/finetune/study_design.jsonl
+*.egg-info/

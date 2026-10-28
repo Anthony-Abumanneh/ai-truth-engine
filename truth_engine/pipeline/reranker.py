@@ -36,7 +36,9 @@ def download(key: str = "msmarco"):
               "special_tokens_map.json", "vocab.txt"):
         if (out / f).exists():
             continue
-        r = httpx.get(f"https://huggingface.co/{MODELS[key]}/resolve/main/{f}", follow_redirects=True, timeout=120)
+        from ..models_registry import revision
+        r = httpx.get(f"https://huggingface.co/{MODELS[key]}/resolve/{revision(MODELS[key])}/{f}",
+                      follow_redirects=True, timeout=120)
         if r.status_code == 200:
             (out / f).write_bytes(r.content)
         elif f in ("config.json", "model.safetensors"):

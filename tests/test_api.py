@@ -68,3 +68,24 @@ def test_watch_endpoints(client):
 def test_input_limits(client):
     assert client.post("/api/audit", json={"text": ""}).status_code == 422
     assert client.post("/api/audit", json={"text": "x" * 7000}).status_code == 422
+
+
+def test_stats_metrics_and_versions(client):
+    client.post("/api/audit", json={"text": "Python was first released in 1991."})
+    s = client.get("/api/stats").json()
+    assert s["claims_checked"] >= 1 and "drift_vs_benchmark" in s and "feedback" in s
+    m = client.get("/metrics").text
+    assert "truth_engine_requests_total" in m and 'verdict="supported"' in m
+    assert "models" in client.get("/api/health").json()
+
+
+def test_rate_limit_and_live_gate(monkeypatch, tmp_path):
+    from truth_engine.api.monitoring import RateLimiter
+    rl = RateLimiter(2)
+    assert rl.allow("a") and rl.allow("a") and not rl.allow("a") and rl.allow("b")
+    monkeypatch.setenv("TE_ALLOW_LIVE", "0")
+    monkeypatch.setenv("TE_RATE_LIMIT", "1")
+    c = TestClient(create_app(engine=EvidenceEngine(), store=TraceStore(tmp_path / "x.sqlite"), warm=False))
+    assert c.get("/api/health").json()["allow_live"] is False
+    assert c.post("/api/audit", json={"text": "Python was first released in 1991.", "live": True}).status_code == 403
+    assert c.post("/api/audit", json={"text": "Python was first released in 1991."}).status_code == 429   # bucket used

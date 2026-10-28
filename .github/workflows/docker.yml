@@ -1,0 +1,35 @@
+name: Docker image
+on:
+  push:
+    branches: [main]
+    paths: [Dockerfile, .dockerignore, requirements.txt, "truth_engine/**", "web/**", "data/**"]
+  pull_request:
+    paths: [Dockerfile, .dockerignore, requirements.txt, "truth_engine/**", "web/**"]
+  workflow_dispatch:
+
+jobs:
+  build-and-smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (bakes pinned models, verifies checksums)
+        run: docker build -t truth-engine .
+      - name: Start container
+        run: docker run -d --name te -p 7860:7860 truth-engine
+      - name: Wait for models to load
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf localhost:7860/api/health | grep -q '"ready":true'; then echo ready; exit 0; fi
+            sleep 5
+          done
+          echo "not ready after 5 min"; docker logs te; exit 1
+      - name: Smoke test an audit
+        run: |
+          curl -sf -X POST localhost:7860/api/audit -H 'Content-Type: application/json' \
+            -d '{"text":"Python was first released in 1991. The capital of Australia is Sydney."}' | tee out.json
+          python3 -c "import json; c=json.load(open('out.json'))['claims']; s=[x['status'] for x in c]; print(s); assert 'supported' in s, s"
+      - name: Image size
+        run: docker image ls truth-engine
+      - if: failure()
+        run: docker logs te || true

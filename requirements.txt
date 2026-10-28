@@ -7,6 +7,7 @@ sympy>=1.12
 pytest>=8.0
 torch>=2.2            # local NLI model (optional; rules-only without it)
 transformers>=4.40
+sentence-transformers>=3.0   # bge-base embeddings for retrieval (hashing fallback without it)
 scikit-learn>=1.4     # study-design classifier (TF-IDF + logistic regression)
 joblib>=1.3
 mcp>=2.3              # MCP server (truth_engine/mcp_server.py)

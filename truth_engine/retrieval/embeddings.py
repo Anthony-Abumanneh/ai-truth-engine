@@ -100,7 +100,8 @@ class STEmbedder(Embedder):
     def __init__(self, model: str = "all-MiniLM-L6-v2"):
         from sentence_transformers import SentenceTransformer  # type: ignore
         from ..pipeline.nli import device
-        self.m = SentenceTransformer(model, device=device())
+        from ..models_registry import revision
+        self.m = SentenceTransformer(model, device=device(), revision=revision(model))
         get_dim = getattr(self.m, "get_embedding_dimension", None) or self.m.get_sentence_embedding_dimension
         self.dim = get_dim()
         self.name = f"st:{model}"

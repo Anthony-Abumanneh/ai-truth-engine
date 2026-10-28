@@ -1,0 +1,8 @@
+{
+ "accuracy": 0.6,
+ "macro_f1": 0.5665,
+ "accuracy_on_answered": 0.7706,
+ "ece": 0.0429,
+ "citation_recall": 0.6968,
+ "n": 300
+}

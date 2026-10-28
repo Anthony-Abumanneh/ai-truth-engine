@@ -69,7 +69,8 @@ def download(key: str | None = None) -> Path:
             continue
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_suffix(dest.suffix + ".part")
-        with httpx.stream("GET", f"https://huggingface.co/{repo}/resolve/main/{f}", follow_redirects=True,
+        from ..models_registry import revision
+        with httpx.stream("GET", f"https://huggingface.co/{repo}/resolve/{revision(repo)}/{f}", follow_redirects=True,
                           timeout=120) as r:
             if r.status_code == 404 and f in OPTIONAL:
                 continue

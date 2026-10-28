@@ -88,7 +88,7 @@ Not medical advice; the UI and README must say so.
 | 9 | FastAPI server, CLI, audit-first web UI | ✅ Done |
 | 9.5 | MCP server (LLM tool) + browser extension, on the same API | ✅ Done |
 | 10 | Tests, end-to-end runs, final docs | ✅ Done |
-| 11 | Deploy + MLOps: Docker, HF Spaces, CI eval gate, model versioning, monitoring | ⏳ **Next** |
+| 11 | Deploy + MLOps: Docker, HF Spaces, CI eval gate, model versioning, monitoring | ✅ Done (Space not yet deployed: needs user's HF token) |
 | 12 | Stretch: GRPO fine-tuning of a small LLM with the verifier as reward | Planned |
 
 ### Plan additions (agreed 2026-10-06)
@@ -608,6 +608,41 @@ New package `truth_engine/science/`:
   cross-encoders, fine-tuning, hard negatives, stage-wise error analysis,
   distant supervision, paired bootstrap, calibration domain shift, MCP,
   MV3 extensions, lint/coverage.
+
+### Step 11 — deploy + MLOps (2026-10-27)
+- MCP fix: Claude launched the server from another cwd → ModuleNotFoundError.
+  Project is now an installable package (pyproject [project], `pip install
+  -e .`; console scripts `truth-engine`, `truth-engine-mcp`). Verified the
+  handshake from a foreign cwd.
+- `models_registry.py`: REVISIONS pins HF commits (NLI large/base, MiniLM
+  reranker, bge-base; downloads use resolve/<sha>, SentenceTransformer
+  revision=); `write_manifest()` → data/models/MANIFEST.json (SHA-256 of 20
+  files incl. calibrator + classifier); `verify()`; summary in /api/health.
+  `truth-engine setup` also warms bge-base and writes the manifest.
+- `api/monitoring.py`: Metrics (requests/latency histograms per path, verdict
+  and decision counts, confidence, live runs, 5xx, rate-limited), drift vs
+  SciFact dev mix (support 0.26 / contradicted 0.103 / unverified 0.637,
+  abstain 0.637; alert if any grouped share moves > 0.25 after ≥ 50 claims),
+  Prometheus /metrics, /api/stats (+ feedback agreement), JSON access log
+  with hashed client id. RateLimiter token bucket (TE_RATE_LIMIT/min on
+  audit/stream/ask/recheck → 429). TE_ALLOW_LIVE=0 → 403 for live; UI
+  disables the live checkboxes.
+- Dockerfile (python:3.12-slim, CPU torch wheel, uid 1000, `truth-engine
+  setup` + verify at build, HEALTHCHECK, port 7860, TE_RATE_LIMIT=10).
+  .dockerignore excludes .env, models, caches, training, extension.
+  **Not built locally (no Docker on the Mac): CI builds and smoke-tests it.**
+- Workflows: ci.yml (ruff + pytest), docker.yml (build, wait ready, audit
+  smoke test), eval-gate.yml (SciFact dev, caches models + embeddings,
+  `scripts/eval_gate.py` vs bench/eval_baseline.json with tolerances acc /
+  macro-F1 0.02, answered-precision / citation recall 0.03, ECE 0.02;
+  verified it fails on a degraded report). Baseline is from the Mac; if the
+  first Linux run differs within noise, re-baseline from its artifact.
+- Data licensing: HealthVer / COVID-Fact / derived train files and 7k PubMed
+  abstracts untracked; classifier set published as 7,199 PMIDs + labels
+  (`dataset()` re-fetches). Old copies remain in git history (rewrite only
+  with the user's go-ahead).
+- `scripts/deploy_space.py <user>/<space>` (HF_TOKEN): uploads tracked files
+  minus training/extension/.github, prepends Space YAML header to README.
 
 ### Steps 8.6–10 (intended design)
 - **4 Audit mode:** `pipeline/claims.py` (sentence → atomic claims;

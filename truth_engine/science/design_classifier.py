@@ -21,6 +21,10 @@ from functools import lru_cache
 from ..config import DATA_DIR
 
 MODEL_PATH = DATA_DIR / "models" / "study_design_clf.joblib"
+# The dataset is published as PMIDs + labels only (abstract text belongs to the publishers);
+# `dataset()` re-fetches exactly these abstracts, so the classifier is reproducible.
+IDS_PATH = DATA_DIR / "finetune" / "study_design_pmids.jsonl"
+TEXT_CACHE = DATA_DIR / "finetune" / "study_design.jsonl"          # local only (gitignored)
 QUERIES = {   # our design label -> PubMed query (tags = labels)
     "meta_analysis": "meta-analysis[pt]",
     "systematic_review": "systematic review[pt] NOT meta-analysis[pt]",
@@ -50,6 +54,35 @@ def fetch_dataset(per_class: int = 1000) -> list[dict]:
                 seen.add(pmid)
                 rows.append({"pmid": pmid, "label": label, "text": f"{r.title}. {r.abstract}"})
         print(f"  {label:18} {sum(x['label'] == label for x in rows)}", flush=True)
+    return rows
+
+
+def fetch_by_ids(ids: list[dict]) -> list[dict]:
+    """Re-fetch the abstracts for a published PMID + label list."""
+    from .pubmed import PubMedClient
+    pm = PubMedClient(offline=False)
+    label = {r["pmid"]: r["label"] for r in ids}
+    pmids = list(label)
+    rows = []
+    for k in range(0, len(pmids), 200):
+        for r in pm.fetch(pmids[k:k + 200]):
+            if r.pmid in label and r.abstract:
+                rows.append({"pmid": r.pmid, "label": label[r.pmid], "text": f"{r.title}. {r.abstract}"})
+    return rows
+
+
+def dataset() -> list[dict]:
+    """Local text cache, else the published PMID list re-fetched, else a fresh PubMed pull."""
+    if TEXT_CACHE.exists():
+        return [json.loads(line) for line in open(TEXT_CACHE)]
+    if IDS_PATH.exists():
+        rows = fetch_by_ids([json.loads(line) for line in open(IDS_PATH)])
+    else:
+        rows = fetch_dataset()
+        IDS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        IDS_PATH.write_text("\n".join(json.dumps({"pmid": r["pmid"], "label": r["label"]}) for r in rows))
+    TEXT_CACHE.parent.mkdir(parents=True, exist_ok=True)
+    TEXT_CACHE.write_text("\n".join(json.dumps(r) for r in rows))
     return rows
 
 
@@ -101,11 +134,4 @@ def predict(title: str, abstract: str) -> tuple[str, float] | None:
 
 
 if __name__ == "__main__":
-    path = DATA_DIR / "finetune" / "study_design.jsonl"
-    if path.exists():
-        rows = [json.loads(line) for line in open(path)]
-    else:
-        rows = fetch_dataset()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("\n".join(json.dumps(r) for r in rows))
-    print(json.dumps(train(rows), indent=1))
+    print(json.dumps(train(dataset()), indent=1))
